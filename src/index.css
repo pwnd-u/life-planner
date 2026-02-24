@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+/* ADHD-friendly: warm, calm, high clarity */
+:root {
+  --adhd-bg: #faf7f2;
+  --adhd-surface: #ffffff;
+  --adhd-accent: #d97706;
+  --adhd-accent-soft: #fef3c7;
+  --adhd-success: #059669;
+  --adhd-text: #1c1917;
+  --adhd-text-muted: #57534e;
+  --adhd-border: #e7e5e4;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  background: var(--adhd-bg);
+  color: var(--adhd-text);
+}
+
+/* Bigger, friendlier calendar (FullCalendar) */
+.adhd-calendar {
+  --fc-border-color: var(--adhd-border);
+  --fc-button-bg-color: var(--adhd-accent);
+  --fc-button-border-color: var(--adhd-accent);
+  --fc-button-hover-bg-color: #b45309;
+  --fc-button-hover-border-color: #b45309;
+  --fc-button-active-bg-color: #92400e;
+  --fc-today-bg-color: var(--adhd-accent-soft);
+  --fc-page-bg-color: var(--adhd-surface);
+  --fc-neutral-bg-color: #fefce8;
+  --fc-list-event-hover-bg-color: #fffbeb;
+}
+.adhd-calendar .fc {
+  font-size: 1rem;
+}
+.adhd-calendar .fc-toolbar-title {
+  font-size: 1.5rem !important;
+  font-weight: 700;
+}
+.adhd-calendar .fc-col-header-cell-cushion,
+.adhd-calendar .fc-scrollgrid-sync-inner {
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.6rem 0.25rem;
+}
+.adhd-calendar .fc-daygrid-day-number {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.5rem;
+  min-width: 1.75rem;
+}
+.adhd-calendar .fc-day-today .fc-daygrid-day-number {
+  background: var(--adhd-accent);
+  color: white !important;
+  border-radius: 9999px;
+}
+.adhd-calendar .fc-event {
+  font-size: 0.9rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.adhd-calendar .fc-timegrid-slot {
+  height: 3rem !important;
+}
+.adhd-calendar .fc-timegrid-slot-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.adhd-calendar .fc-button {
+  padding: 0.6rem 1rem !important;
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  border-radius: 0.5rem !important;
+}
+.adhd-calendar .fc-daygrid-day-frame {
+  min-height: 8rem;
+}
+.adhd-calendar .fc-view-harness {
+  min-height: 600px;
+}
+.adhd-calendar .fc-scrollgrid {
+  border-radius: 0.75rem;
+}
+.adhd-calendar .fc-theme-standard td,
+.adhd-calendar .fc-theme-standard th {
+  border-width: 1px;
+}
+
+/* Demo mode — blur user-entered content while keeping UI chrome visible */
+.demo-mode main input[type="text"],
+.demo-mode main input[type="number"],
+.demo-mode main input[type="date"],
+.demo-mode main textarea {
+  color: transparent !important;
+  text-shadow: 0 0 8px rgba(28, 25, 23, 0.45);
+}
+
+/* User-generated text in list items, table cells, journal paragraphs */
+.demo-mode main li span:not(.demo-keep),
+.demo-mode main td:not(.demo-keep) {
+  color: transparent !important;
+  text-shadow: 0 0 8px rgba(28, 25, 23, 0.45);
+}
+
+/* Journal entry bodies */
+.demo-mode main p.whitespace-pre-wrap {
+  color: transparent !important;
+  text-shadow: 0 0 8px rgba(28, 25, 23, 0.45);
+}
+
+/* Calendar events */
+.demo-mode .fc-event-title,
+.demo-mode .fc-event-main,
+.demo-mode .fc-list-event-title {
+  color: transparent !important;
+  text-shadow: 0 0 8px rgba(28, 25, 23, 0.45);
+}
+
+/* Analytics chart text */
+.demo-mode .recharts-text,
+.demo-mode .recharts-cartesian-axis-tick-value {
+  fill: transparent !important;
+}
