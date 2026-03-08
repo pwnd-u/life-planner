@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { AppState, Goal, Task, ScheduledBlock, CapacitySettings, Checklist, ChecklistItem, TrackedGoal, GoalLog, JournalEntry, CalendarEvent, CalendarPeriodKey, CalendarPeriodChecklistItem, MyListItem, DailyRecurringItem, DailyItemLog } from './types';
+import type { AppState, Goal, Task, ScheduledBlock, CapacitySettings, Checklist, ChecklistItem, TrackedGoal, GoalLog, JournalEntry, CalendarEvent, CalendarPeriodKey, CalendarPeriodChecklistItem, MyListItem, DailyRecurringItem, DailyItemLog, EventCompletion, EventCompletionStatus, DailyReflection, WeeklyReflection, EventFocusSession, WeeklyRecurringItem, WeeklyItemLog, MonthlyRecurringItem, MonthlyItemLog, Objective } from './types';
 import { applyUpdate, type StoreUpdate } from './store';
 import { todayStr, yesterdayStr } from './lib/date';
 import { loadFromSupabase, saveToSupabase, loadLocal, saveLocal } from './lib/persistence';
@@ -77,6 +77,41 @@ export function useGoals(state: AppState, dispatch: (u: StoreUpdate) => void) {
     [dispatch]
   );
   return { goals: state.goals.filter((g) => g.active), addGoal, updateGoal, removeGoal, setGoals };
+}
+
+export function useObjectives(state: AppState, dispatch: (u: StoreUpdate) => void) {
+  const addObjective = useCallback(
+    (o: Omit<Objective, 'id'>) => {
+      const id = `obj-${Date.now()}`;
+      dispatch({ type: 'setObjectives', objectives: [...state.objectives, { ...o, id }] });
+    },
+    [state.objectives, dispatch]
+  );
+  const updateObjective = useCallback(
+    (id: string, patch: Partial<Objective>) => {
+      dispatch({
+        type: 'setObjectives',
+        objectives: state.objectives.map((o) => (o.id === id ? { ...o, ...patch } : o)),
+      });
+    },
+    [state.objectives, dispatch]
+  );
+  const removeObjective = useCallback(
+    (id: string) => {
+      dispatch({
+        type: 'setObjectives',
+        objectives: state.objectives.filter((o) => o.id !== id),
+      });
+      dispatch({
+        type: 'setTrackedGoals',
+        trackedGoals: state.trackedGoals.map((g) =>
+          g.objectiveId === id ? { ...g, objectiveId: undefined } : g
+        ),
+      });
+    },
+    [state.objectives, state.trackedGoals, dispatch]
+  );
+  return { objectives: state.objectives, addObjective, updateObjective, removeObjective };
 }
 
 export function useTasks(state: AppState, dispatch: (u: StoreUpdate) => void) {
@@ -299,6 +334,50 @@ export function useTrackedGoals(state: AppState, dispatch: (u: StoreUpdate) => v
     },
     [state.goalLogs, dispatch]
   );
+  const toggleMilestoneStep = useCallback(
+    (trackedGoalId: string, stepIndex: number) => {
+      const goal = state.trackedGoals.find((g) => g.id === trackedGoalId);
+      if (!goal?.milestoneSteps) return;
+      const steps = goal.milestoneSteps.map((s, i) =>
+        i === stepIndex ? { ...s, done: !s.done } : s
+      );
+      dispatch({
+        type: 'setTrackedGoals',
+        trackedGoals: state.trackedGoals.map((g) =>
+          g.id === trackedGoalId ? { ...g, milestoneSteps: steps } : g
+        ),
+      });
+    },
+    [state.trackedGoals, dispatch]
+  );
+  const addMilestoneStep = useCallback(
+    (trackedGoalId: string, text: string) => {
+      const goal = state.trackedGoals.find((g) => g.id === trackedGoalId);
+      if (!goal) return;
+      const steps = [...(goal.milestoneSteps ?? []), { text: text.trim(), done: false }];
+      dispatch({
+        type: 'setTrackedGoals',
+        trackedGoals: state.trackedGoals.map((g) =>
+          g.id === trackedGoalId ? { ...g, milestoneSteps: steps } : g
+        ),
+      });
+    },
+    [state.trackedGoals, dispatch]
+  );
+  const removeMilestoneStep = useCallback(
+    (trackedGoalId: string, stepIndex: number) => {
+      const goal = state.trackedGoals.find((g) => g.id === trackedGoalId);
+      if (!goal?.milestoneSteps) return;
+      const steps = goal.milestoneSteps.filter((_, i) => i !== stepIndex);
+      dispatch({
+        type: 'setTrackedGoals',
+        trackedGoals: state.trackedGoals.map((g) =>
+          g.id === trackedGoalId ? { ...g, milestoneSteps: steps } : g
+        ),
+      });
+    },
+    [state.trackedGoals, dispatch]
+  );
   return {
     trackedGoals: state.trackedGoals,
     goalLogs: state.goalLogs,
@@ -306,6 +385,9 @@ export function useTrackedGoals(state: AppState, dispatch: (u: StoreUpdate) => v
     updateTrackedGoal,
     removeTrackedGoal,
     addOrUpdateLog,
+    toggleMilestoneStep,
+    addMilestoneStep,
+    removeMilestoneStep,
   };
 }
 
@@ -756,4 +838,271 @@ export function useDailyRecurring(state: AppState, dispatch: (u: StoreUpdate) =>
   );
 
   return { items, logs, addItem, updateItem, removeItem, getLog, toggleLog, ensureLogsForDate, getLogsForDate };
+}
+
+// ---- Weekly Recurring Items & Logs ----
+export function useWeeklyRecurring(state: AppState, dispatch: (u: StoreUpdate) => void) {
+  const items = state.weeklyRecurringItems ?? [];
+  const logs = state.weeklyItemLogs ?? [];
+
+  const addItem = useCallback(
+    (title: string) => {
+      const maxOrder = items.length ? Math.max(...items.map((i) => i.order)) : 0;
+      const newItem: WeeklyRecurringItem = {
+        id: `wri-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        title: title.trim(),
+        order: maxOrder + 1,
+      };
+      dispatch({ type: 'setWeeklyRecurringItems', items: [...items, newItem] });
+    },
+    [items, dispatch]
+  );
+
+  const updateItem = useCallback(
+    (id: string, patch: Partial<WeeklyRecurringItem>) => {
+      dispatch({ type: 'setWeeklyRecurringItems', items: items.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
+    },
+    [items, dispatch]
+  );
+
+  const removeItem = useCallback(
+    (id: string) => {
+      dispatch({ type: 'setWeeklyRecurringItems', items: items.filter((i) => i.id !== id) });
+      dispatch({ type: 'setWeeklyItemLogs', logs: logs.filter((l) => l.weeklyItemId !== id) });
+    },
+    [items, logs, dispatch]
+  );
+
+  const getLog = useCallback(
+    (weeklyItemId: string, weekKey: string): WeeklyItemLog | undefined =>
+      logs.find((l) => l.weeklyItemId === weeklyItemId && l.weekKey === weekKey),
+    [logs]
+  );
+
+  const toggleLog = useCallback(
+    (weeklyItemId: string, weekKey: string) => {
+      const existing = logs.find((l) => l.weeklyItemId === weeklyItemId && l.weekKey === weekKey);
+      if (existing) {
+        dispatch({ type: 'setWeeklyItemLogs', logs: logs.map((l) => (l.id === existing.id ? { ...l, done: !l.done } : l)) });
+      } else {
+        const newLog: WeeklyItemLog = {
+          id: `wil-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          weeklyItemId,
+          weekKey,
+          done: true,
+        };
+        dispatch({ type: 'setWeeklyItemLogs', logs: [...logs, newLog] });
+      }
+    },
+    [logs, dispatch]
+  );
+
+  const getLogsForWeek = useCallback(
+    (weekKey: string) => logs.filter((l) => l.weekKey === weekKey),
+    [logs]
+  );
+
+  return { items, logs, addItem, updateItem, removeItem, getLog, toggleLog, getLogsForWeek };
+}
+
+// ---- Monthly Recurring Items & Logs ----
+export function useMonthlyRecurring(state: AppState, dispatch: (u: StoreUpdate) => void) {
+  const items = state.monthlyRecurringItems ?? [];
+  const logs = state.monthlyItemLogs ?? [];
+
+  const addItem = useCallback(
+    (title: string) => {
+      const maxOrder = items.length ? Math.max(...items.map((i) => i.order)) : 0;
+      const newItem: MonthlyRecurringItem = {
+        id: `mri-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        title: title.trim(),
+        order: maxOrder + 1,
+      };
+      dispatch({ type: 'setMonthlyRecurringItems', items: [...items, newItem] });
+    },
+    [items, dispatch]
+  );
+
+  const updateItem = useCallback(
+    (id: string, patch: Partial<MonthlyRecurringItem>) => {
+      dispatch({ type: 'setMonthlyRecurringItems', items: items.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
+    },
+    [items, dispatch]
+  );
+
+  const removeItem = useCallback(
+    (id: string) => {
+      dispatch({ type: 'setMonthlyRecurringItems', items: items.filter((i) => i.id !== id) });
+      dispatch({ type: 'setMonthlyItemLogs', logs: logs.filter((l) => l.monthlyItemId !== id) });
+    },
+    [items, logs, dispatch]
+  );
+
+  const getLog = useCallback(
+    (monthlyItemId: string, monthKey: string): MonthlyItemLog | undefined =>
+      logs.find((l) => l.monthlyItemId === monthlyItemId && l.monthKey === monthKey),
+    [logs]
+  );
+
+  const toggleLog = useCallback(
+    (monthlyItemId: string, monthKey: string) => {
+      const existing = logs.find((l) => l.monthlyItemId === monthlyItemId && l.monthKey === monthKey);
+      if (existing) {
+        dispatch({ type: 'setMonthlyItemLogs', logs: logs.map((l) => (l.id === existing.id ? { ...l, done: !l.done } : l)) });
+      } else {
+        const newLog: MonthlyItemLog = {
+          id: `mil-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          monthlyItemId,
+          monthKey,
+          done: true,
+        };
+        dispatch({ type: 'setMonthlyItemLogs', logs: [...logs, newLog] });
+      }
+    },
+    [logs, dispatch]
+  );
+
+  const getLogsForMonth = useCallback(
+    (monthKey: string) => logs.filter((l) => l.monthKey === monthKey),
+    [logs]
+  );
+
+  return { items, logs, addItem, updateItem, removeItem, getLog, toggleLog, getLogsForMonth };
+}
+
+// ---- Event completions (planned vs actual) ----
+export function useEventCompletions(state: AppState, dispatch: (u: StoreUpdate) => void) {
+  const completions = state.eventCompletions ?? {};
+
+  const setCompletion = useCallback(
+    (date: string, eventId: string, status: EventCompletionStatus, note?: string, whatIdidInstead?: string) => {
+      const key = `${date}:${eventId}`;
+      const existing = completions[key];
+      dispatch({
+        type: 'setEventCompletions',
+        eventCompletions: {
+          ...completions,
+          [key]: {
+            status,
+            note: note !== undefined ? (note.trim() || undefined) : existing?.note,
+            whatIdidInstead: whatIdidInstead !== undefined ? (whatIdidInstead.trim() || undefined) : existing?.whatIdidInstead,
+          },
+        },
+      });
+    },
+    [completions, dispatch]
+  );
+
+  const getCompletion = useCallback(
+    (date: string, eventId: string): EventCompletion | undefined => completions[`${date}:${eventId}`],
+    [completions]
+  );
+
+  const getCompletionsForDate = useCallback(
+    (date: string): Record<string, EventCompletion> => {
+      const prefix = `${date}:`;
+      const out: Record<string, EventCompletion> = {};
+      for (const [k, v] of Object.entries(completions)) {
+        if (k.startsWith(prefix)) out[k.slice(prefix.length)] = v;
+      }
+      return out;
+    },
+    [completions]
+  );
+
+  return { completions, setCompletion, getCompletion, getCompletionsForDate };
+}
+
+// ---- Daily & weekly reflections (AI) ----
+export function useReflections(state: AppState, dispatch: (u: StoreUpdate) => void) {
+  const dailyReflections = state.dailyReflections ?? {};
+  const weeklyReflections = state.weeklyReflections ?? {};
+
+  const setDailyReflection = useCallback(
+    (reflection: DailyReflection) => {
+      dispatch({
+        type: 'setDailyReflections',
+        dailyReflections: { ...dailyReflections, [reflection.date]: reflection },
+      });
+    },
+    [dailyReflections, dispatch]
+  );
+
+  const setWeeklyReflection = useCallback(
+    (reflection: WeeklyReflection) => {
+      dispatch({
+        type: 'setWeeklyReflections',
+        weeklyReflections: { ...weeklyReflections, [reflection.weekStart]: reflection },
+      });
+    },
+    [weeklyReflections, dispatch]
+  );
+
+  const getDailyReflection = useCallback((date: string) => dailyReflections[date], [dailyReflections]);
+  const getWeeklyReflection = useCallback((weekStart: string) => weeklyReflections[weekStart], [weeklyReflections]);
+
+  return {
+    dailyReflections,
+    weeklyReflections,
+    setDailyReflection,
+    setWeeklyReflection,
+    getDailyReflection,
+    getWeeklyReflection,
+  };
+}
+
+// ---- Event focus sessions (time tracking per event) ----
+export function useEventFocusSessions(state: AppState, dispatch: (u: StoreUpdate) => void) {
+  const sessions = state.eventFocusSessions ?? [];
+
+  const startSession = useCallback(
+    (event: CalendarEvent): string => {
+      const now = new Date().toISOString();
+      const id = `efs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const session: EventFocusSession = {
+        id,
+        eventId: event.id,
+        eventTitle: event.title,
+        plannedStart: event.start,
+        plannedEnd: event.end,
+        actualStart: now,
+      };
+      dispatch({ type: 'setEventFocusSessions', sessions: [...sessions, session] });
+      return id;
+    },
+    [sessions, dispatch]
+  );
+
+  const endSession = useCallback(
+    (id: string) => {
+      const now = new Date().toISOString();
+      dispatch({
+        type: 'setEventFocusSessions',
+        sessions: sessions.map((s) => (s.id === id && !s.actualEnd ? { ...s, actualEnd: now } : s)),
+      });
+    },
+    [sessions, dispatch]
+  );
+
+  const updateSession = useCallback(
+    (id: string, patch: Partial<EventFocusSession>) => {
+      dispatch({
+        type: 'setEventFocusSessions',
+        sessions: sessions.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+      });
+    },
+    [sessions, dispatch]
+  );
+
+  const getActiveSessionForEvent = useCallback(
+    (eventId: string): EventFocusSession | undefined => sessions.find((s) => s.eventId === eventId && !s.actualEnd),
+    [sessions]
+  );
+
+  const getSessionsForEvent = useCallback(
+    (eventId: string): EventFocusSession[] => sessions.filter((s) => s.eventId === eventId),
+    [sessions]
+  );
+
+  return { sessions, startSession, endSession, updateSession, getActiveSessionForEvent, getSessionsForEvent };
 }

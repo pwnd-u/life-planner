@@ -205,7 +205,7 @@ export default function Analytics({ dailyRecurringItems: items, dailyItemLogs: l
             <XAxis dataKey="displayDate" tick={{ fontSize: 10, fill: '#78716c' }} tickLine={false} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#78716c' }} tickLine={false} axisLine={false} width={30} />
             <Tooltip
-              formatter={(value: number) => [`${value}%`, 'Completion']}
+              formatter={(value: number | undefined) => [`${(value ?? 0).toString()}%`, 'Completion']}
               labelFormatter={(label) => `${label}`}
             />
             <ReferenceLine y={80} stroke="#a3a3a3" strokeDasharray="4 4" label={{ value: '80%', fontSize: 10, fill: '#a3a3a3' }} />
@@ -268,7 +268,7 @@ export default function Analytics({ dailyRecurringItems: items, dailyItemLogs: l
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
             <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#78716c' }} tickLine={false} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#78716c' }} tickLine={false} axisLine={false} width={30} />
-            <Tooltip formatter={(value: number) => [`${value}%`, 'Completion']} />
+            <Tooltip formatter={(value: number | undefined) => [`${(value ?? 0).toString()}%`, 'Completion']} />
             <Bar dataKey="rate" radius={[4, 4, 0, 0]}>
               {dayOfWeekData.map((entry, index) => (
                 <Cell key={index} fill={entry.rate >= 80 ? '#16a34a' : entry.rate >= 50 ? '#f59e0b' : '#ef4444'} />
@@ -344,7 +344,7 @@ function RollingAvgChart({ data }: { data: { date: string; displayDate: string; 
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
         <XAxis dataKey="displayDate" tick={{ fontSize: 10, fill: '#78716c' }} tickLine={false} />
         <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#78716c' }} tickLine={false} axisLine={false} width={30} />
-        <Tooltip formatter={(value: number | null) => [value != null ? `${value}%` : '—', '7d avg']} />
+        <Tooltip formatter={(value: unknown) => [value != null ? `${value as number}%` : '—', '7d avg']} />
         <ReferenceLine y={80} stroke="#a3a3a3" strokeDasharray="4 4" />
         <Line type="monotone" dataKey="rolling" stroke="#44403c" strokeWidth={2} dot={false} connectNulls />
       </LineChart>

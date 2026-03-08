@@ -25,6 +25,11 @@ export default function Checklists({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [justAddedChecklistId, setJustAddedChecklistId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const isExpanded = (id: string) => expandedIds[id] !== false;
+  const setExpanded = (id: string, value: boolean) => setExpandedIds((prev) => ({ ...prev, [id]: value }));
+  const expandAll = () => setExpandedIds(() => Object.fromEntries(checklists.map((c) => [c.id, true])));
+  const collapseAll = () => setExpandedIds(() => Object.fromEntries(checklists.map((c) => [c.id, false])));
 
   const getItemsForChecklist = (c: Checklist) =>
     c.itemIds
@@ -64,21 +69,50 @@ export default function Checklists({
         Create checklists and add items with the + button. Connect calendar events to a checklist from the Calendar when editing an event.
       </p>
 
-      <button
-        type="button"
-        onClick={handleCreateChecklist}
-        className="rounded-xl bg-[var(--adhd-accent)] px-4 py-2.5 text-base font-bold text-white hover:opacity-90"
-      >
-        Create checklist
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleCreateChecklist}
+          className="rounded-xl bg-[var(--adhd-accent)] px-4 py-2.5 text-base font-bold text-white hover:opacity-90"
+        >
+          Create checklist
+        </button>
+        {checklists.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={expandAll}
+              className="rounded-xl border-2 border-[var(--adhd-border)] bg-[var(--adhd-surface)] px-3 py-2 text-sm font-medium text-[var(--adhd-text)] hover:bg-[var(--adhd-bg)]"
+            >
+              Expand all
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="rounded-xl border-2 border-[var(--adhd-border)] bg-[var(--adhd-surface)] px-3 py-2 text-sm font-medium text-[var(--adhd-text)] hover:bg-[var(--adhd-bg)]"
+            >
+              Collapse all
+            </button>
+          </>
+        )}
+      </div>
 
       <ul className="space-y-6">
         {checklists.map((c) => {
           const items = getItemsForChecklist(c);
+          const expanded = isExpanded(c.id);
 
           return (
             <li key={c.id} className="rounded-xl border-2 border-[var(--adhd-border)] bg-[var(--adhd-surface)] overflow-hidden">
-              <div className="p-4 border-b border-[var(--adhd-border)]">
+              <div className="p-4 border-b border-[var(--adhd-border)] flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(c.id, !expanded)}
+                  className="shrink-0 p-1 rounded text-[var(--adhd-text-muted)] hover:bg-[var(--adhd-bg)] hover:text-[var(--adhd-text)]"
+                  aria-label={expanded ? 'Collapse' : 'Expand'}
+                >
+                  {expanded ? '▼' : '▶'}
+                </button>
                 {editingNameId === c.id ? (
                   <input
                     type="text"
@@ -96,20 +130,22 @@ export default function Checklists({
                       }
                       if (e.key === 'Escape') setEditingNameId(null);
                     }}
-                    className="w-full rounded-lg border-2 border-[var(--adhd-border)] px-3 py-2 text-base font-bold text-[var(--adhd-text)] focus:border-[var(--adhd-accent)] focus:outline-none"
+                    className="flex-1 min-w-0 rounded-lg border-2 border-[var(--adhd-border)] px-3 py-2 text-base font-bold text-[var(--adhd-text)] focus:border-[var(--adhd-accent)] focus:outline-none"
                     autoFocus
                   />
                 ) : (
                   <button
                     type="button"
                     onClick={() => setEditingNameId(c.id)}
-                    className="text-left w-full text-base font-bold text-[var(--adhd-text)] hover:bg-[var(--adhd-bg)] rounded-lg px-2 py-1 -mx-2 -my-1"
+                    className="flex-1 min-w-0 text-left text-base font-bold text-[var(--adhd-text)] hover:bg-[var(--adhd-bg)] rounded-lg px-2 py-1 -mx-2 -my-1"
                   >
                     {c.name}
                   </button>
                 )}
               </div>
 
+              {expanded && (
+              <>
               <div className="p-4">
                 <ul className="space-y-2">
                   {items.map((item) => (
@@ -186,6 +222,8 @@ export default function Checklists({
                   Delete checklist
                 </button>
               </div>
+              </>
+              )}
             </li>
           );
         })}

@@ -4,9 +4,9 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import type { EventClickArg, EventDropArg, DateSelectArg, DatesSetArg } from '@fullcalendar/core';
+import type { EventClickArg, EventDropArg, DateSelectArg, DatesSetArg, EventContentArg } from '@fullcalendar/core';
 import type { EventResizeDoneArg } from '@fullcalendar/interaction';
-import type { CalendarEvent, CalendarPeriodChecklistItem, CalendarRecurrence, Checklist, ChecklistItem, DailyRecurringItem, DailyItemLog, MyListItem } from '../types';
+import type { CalendarEvent, CalendarPeriodChecklistItem, CalendarRecurrence, Checklist, ChecklistItem, DailyRecurringItem, DailyItemLog, MyListItem, EventCompletionStatus, EventCompletion, EventFocusSession, WeeklyRecurringItem, WeeklyItemLog, MonthlyRecurringItem, MonthlyItemLog } from '../types';
 import { getWeekStart, getMonthKey, getDaysInWeek, getDaysInMonth, getWeekStartsInMonth, getDaysInRange, todayStr } from '../lib/date';
 import { formatDate } from '../lib/date';
 import { fetchGoogleCalendarEvents, defaultTimeMin, defaultTimeMax } from '../lib/googleCalendar';
@@ -50,6 +50,30 @@ interface Props {
   onRemoveDailyItem?: (id: string) => void;
   onToggleDailyLog?: (dailyItemId: string, date: string) => void;
   getDailyLog?: (dailyItemId: string, date: string) => DailyItemLog | undefined;
+  // Weekly recurring items
+  weeklyRecurringItems?: WeeklyRecurringItem[];
+  weeklyItemLogs?: WeeklyItemLog[];
+  onAddWeeklyItem?: (title: string) => void;
+  onUpdateWeeklyItem?: (id: string, patch: Partial<WeeklyRecurringItem>) => void;
+  onRemoveWeeklyItem?: (id: string) => void;
+  onToggleWeeklyLog?: (weeklyItemId: string, weekKey: string) => void;
+  getWeeklyLog?: (weeklyItemId: string, weekKey: string) => WeeklyItemLog | undefined;
+  // Monthly recurring items
+  monthlyRecurringItems?: MonthlyRecurringItem[];
+  monthlyItemLogs?: MonthlyItemLog[];
+  onAddMonthlyItem?: (title: string) => void;
+  onUpdateMonthlyItem?: (id: string, patch: Partial<MonthlyRecurringItem>) => void;
+  onRemoveMonthlyItem?: (id: string) => void;
+  onToggleMonthlyLog?: (monthlyItemId: string, monthKey: string) => void;
+  getMonthlyLog?: (monthlyItemId: string, monthKey: string) => MonthlyItemLog | undefined;
+  /** Planned vs actual: log how events went (day view only). */
+  getEventCompletion?: (date: string, eventId: string) => EventCompletion | undefined;
+  setEventCompletion?: (date: string, eventId: string, status: EventCompletionStatus, note?: string, whatIdidInstead?: string) => void;
+  /** Focus sessions per event: time tracking. */
+  focusSessions?: EventFocusSession[];
+  onStartFocusSession?: (event: CalendarEvent) => string;
+  onEndFocusSession?: (sessionId: string) => void;
+  onUpdateFocusSession?: (sessionId: string, patch: Partial<EventFocusSession>) => void;
 }
 
 function toCalendarEvent(
@@ -192,12 +216,31 @@ export default function Calendar({
   onSyncExistingChecklistToMyList,
   myListItems = [],
   dailyRecurringItems = [],
-  dailyItemLogs = [],
   onAddDailyItem,
   onUpdateDailyItem,
   onRemoveDailyItem,
   onToggleDailyLog,
   getDailyLog,
+  weeklyRecurringItems = [],
+  weeklyItemLogs = [],
+  onAddWeeklyItem,
+  onUpdateWeeklyItem,
+  onRemoveWeeklyItem,
+  onToggleWeeklyLog,
+  getWeeklyLog,
+  monthlyRecurringItems = [],
+  monthlyItemLogs = [],
+  onAddMonthlyItem,
+  onUpdateMonthlyItem,
+  onRemoveMonthlyItem,
+  onToggleMonthlyLog,
+  getMonthlyLog,
+  getEventCompletion,
+  setEventCompletion,
+  focusSessions = [],
+  onStartFocusSession,
+  onEndFocusSession,
+  onUpdateFocusSession,
 }: Props) {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [newEventRange, setNewEventRange] = useState<{ start: string; end: string; allDay: boolean } | null>(null);
@@ -230,6 +273,9 @@ export default function Calendar({
   const [checklistConnectId, setChecklistConnectId] = useState('');
   const [checklistSearchQuery, setChecklistSearchQuery] = useState('');
   const [showBlockChecklist, setShowBlockChecklist] = useState(false);
+  const [closeDayModalOpen, setCloseDayModalOpen] = useState(false);
+  const [focusModalEvent, setFocusModalEvent] = useState<CalendarEvent | null>(null);
+  const [focusSessionTick, setFocusSessionTick] = useState(Date.now());
 
   useEffect(() => {
     if (newEventRange) {
@@ -243,6 +289,35 @@ export default function Calendar({
 
   const periodKey = currentStart ? getPeriodKey(currentView, currentStart) : '';
   const label = periodKey ? periodLabel(periodKey) : '';
+  const closeDayDate = periodKey.startsWith('day:') ? periodKey.slice(4) : null;
+  const eventsOnDayForLog = useMemo(
+    () => (closeDayDate ? events.filter((ev) => ev.start.slice(0, 10) === closeDayDate) : []),
+    [events, closeDayDate]
+  );
+  const currentWeekKey = useMemo(() => {
+    if (!periodKey.startsWith('week:')) return '';
+    const [, value] = periodKey.split(':');
+    return value;
+  }, [periodKey]);
+  const currentMonthKey = useMemo(() => {
+    if (!periodKey.startsWith('month:')) return '';
+    const [, value] = periodKey.split(':');
+    return value;
+  }, [periodKey]);
+  const getActiveFocusSessionForEvent = useCallback(
+    (eventId: string): EventFocusSession | undefined =>
+      focusSessions.find((s) => s.eventId === eventId && !s.actualEnd),
+    [focusSessions]
+  );
+
+  // Keep elapsed time reasonably fresh while a focus modal is open
+  useEffect(() => {
+    if (!focusModalEvent) return;
+    const id = setInterval(() => {
+      setFocusSessionTick(Date.now());
+    }, 1000);
+    return () => clearInterval(id);
+  }, [focusModalEvent]);
 
   const todaysTimedEvents = useMemo(() => getTodaysTimedEvents(events), [events]);
   const { now: nowBlock, next: nextBlock } = useMemo(() => getNowAndNext(todaysTimedEvents), [todaysTimedEvents]);
@@ -614,6 +689,15 @@ export default function Calendar({
           >
             + Add event
           </button>
+          {currentView === 'timeGridDay' && closeDayDate && eventsOnDayForLog.length > 0 && getEventCompletion && setEventCompletion && (
+            <button
+              type="button"
+              onClick={() => setCloseDayModalOpen(true)}
+              className="rounded-xl border-2 border-[var(--adhd-accent)] bg-[var(--adhd-surface)] px-4 py-2.5 text-base font-bold text-[var(--adhd-accent)] hover:bg-[var(--adhd-accent-soft)]"
+            >
+              Log how it went
+            </button>
+          )}
           {typeof Notification !== 'undefined' && Notification.permission !== 'granted' && (
             <button
               type="button"
@@ -642,6 +726,46 @@ export default function Calendar({
           eventDrop={handleEventDrop}
           eventResize={handleEventResize}
           datesSet={handleDatesSet}
+          eventContent={(arg: EventContentArg) => {
+            const base = (
+              <>
+                {arg.timeText && (
+                  <span className="fc-time text-xs mr-1">{arg.timeText}</span>
+                )}
+                <span className="fc-title truncate">{arg.event.title}</span>
+              </>
+            );
+            if (!onStartFocusSession) return base;
+            const ev = events.find((e) => e.id === arg.event.id);
+            if (!ev) return base;
+            const active = getActiveFocusSessionForEvent(ev.id);
+            return (
+              <div className="flex items-center justify-between gap-1 px-0.5">
+                <div className="min-w-0 flex-1 truncate text-[11px] leading-tight">
+                  {base}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // One-click focus: ensure a session exists and open the big focus modal
+                    const current = getActiveFocusSessionForEvent(ev.id);
+                    if (!current && onStartFocusSession) {
+                      onStartFocusSession(ev);
+                      setFocusSessionTick(Date.now());
+                    }
+                    setFocusModalEvent(ev);
+                  }}
+                  className={`ml-1 shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold leading-none ${
+                    active ? 'bg-[var(--adhd-success)] text-white' : 'bg-[var(--adhd-accent)] text-white'
+                  }`}
+                  title={active ? 'Open focus for this block' : 'Start focus for this block'}
+                >
+                  {active ? 'Focus' : '▶'}
+                </button>
+              </div>
+            );
+          }}
           selectMirror
           dayMaxEvents={5}
           slotMinTime="06:00:00"
@@ -669,6 +793,32 @@ export default function Calendar({
                 onAddItem={onAddDailyItem}
                 onUpdateItem={onUpdateDailyItem}
                 onRemoveItem={onRemoveDailyItem}
+              />
+            )}
+
+            {/* Weekly Items — recurring weekly checklist, only in week view */}
+            {currentView === 'timeGridWeek' && currentWeekKey && onAddWeeklyItem && onToggleWeeklyLog && getWeeklyLog && (
+              <WeeklyItemsSection
+                items={weeklyRecurringItems ?? []}
+                weekKey={currentWeekKey}
+                getWeeklyLog={getWeeklyLog}
+                onToggleLog={onToggleWeeklyLog}
+                onAddItem={onAddWeeklyItem}
+                onUpdateItem={onUpdateWeeklyItem}
+                onRemoveItem={onRemoveWeeklyItem}
+              />
+            )}
+
+            {/* Monthly Items — recurring monthly checklist, only in month view */}
+            {currentView === 'dayGridMonth' && currentMonthKey && onAddMonthlyItem && onToggleMonthlyLog && getMonthlyLog && (
+              <MonthlyItemsSection
+                items={monthlyRecurringItems ?? []}
+                monthKey={currentMonthKey}
+                getMonthlyLog={getMonthlyLog}
+                onToggleLog={onToggleMonthlyLog}
+                onAddItem={onAddMonthlyItem}
+                onUpdateItem={onUpdateMonthlyItem}
+                onRemoveItem={onRemoveMonthlyItem}
               />
             )}
 
@@ -1104,6 +1254,106 @@ export default function Calendar({
               </div>
             ) : (
             <form onSubmit={handleUpdateEvent} className="mt-4 space-y-4">
+              {/* Focus mode / time tracking */}
+              {onStartFocusSession && onEndFocusSession && onUpdateFocusSession && (
+                <div className="rounded-xl border-2 border-[var(--adhd-border)] bg-[var(--adhd-bg)]/60 p-3">
+                  <p className="text-sm font-bold text-[var(--adhd-text)]">Focus mode</p>
+                  <p className="mt-0.5 text-xs text-[var(--adhd-text-muted)]">
+                    Use this while you&apos;re working to track actual time spent and keep your attention on this block.
+                  </p>
+                  {(() => {
+                    if (!selectedEvent) return null;
+                    const active = getActiveFocusSessionForEvent(selectedEvent.id);
+                    const allSessions = focusSessions.filter((s) => s.eventId === selectedEvent.id).slice().sort((a, b) => b.actualStart.localeCompare(a.actualStart));
+                    const computeMinutes = (startIso: string, endIso?: string) => {
+                      const start = new Date(startIso).getTime();
+                      const end = endIso ? new Date(endIso).getTime() : focusSessionTick;
+                      return Math.max(1, Math.round((end - start) / 60000));
+                    };
+                    const handleStart = () => {
+                      if (!selectedEvent) return;
+                      const id = onStartFocusSession(selectedEvent);
+                      // tick immediately so UI updates
+                      setFocusSessionTick(Date.now());
+                      return id;
+                    };
+                    const handleEnd = () => {
+                      if (active) {
+                        onEndFocusSession(active.id);
+                        setFocusSessionTick(Date.now());
+                      }
+                    };
+                    return (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs text-[var(--adhd-text-muted)]">
+                            <div>Planned: {formatTime(selectedEvent.start)} – {formatTime(selectedEvent.end)}</div>
+                          </div>
+                          {active ? (
+                            <button
+                              type="button"
+                              onClick={handleEnd}
+                              className="rounded-lg bg-[var(--adhd-success)] px-3 py-1 text-xs font-semibold text-white hover:opacity-90"
+                            >
+                              End ({computeMinutes(active.actualStart)} min)
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleStart}
+                              className="rounded-lg border-2 border-[var(--adhd-accent)] bg-[var(--adhd-surface)] px-3 py-1 text-xs font-semibold text-[var(--adhd-accent)] hover:bg-[var(--adhd-accent-soft)]"
+                            >
+                              Start focus
+                            </button>
+                          )}
+                        </div>
+                        {active && (
+                          <p className="text-xs text-[var(--adhd-text)]">
+                            Started at {formatTime(active.actualStart)} · Elapsed ≈ {computeMinutes(active.actualStart)} min
+                          </p>
+                        )}
+                        {active && (
+                          <div className="mt-1">
+                            <label className="block text-xs font-medium text-[var(--adhd-text-muted)] mb-0.5">
+                              Note (optional, e.g. distractions, what mattered)
+                            </label>
+                            <textarea
+                              rows={2}
+                              defaultValue={active.note ?? ''}
+                              onBlur={(e) => {
+                                const note = e.target.value.trim();
+                                onUpdateFocusSession(active.id, { note: note || undefined });
+                                setFocusSessionTick(Date.now());
+                              }}
+                              className="w-full rounded-lg border-2 border-[var(--adhd-border)] px-2 py-1 text-xs text-[var(--adhd-text)] placeholder:text-[var(--adhd-text-muted)] focus:border-[var(--adhd-accent)] focus:outline-none"
+                              placeholder="Optional: jot how focused you were, what pulled you away, etc."
+                            />
+                          </div>
+                        )}
+                        {allSessions.length > 0 && (
+                          <div className="mt-2 border-t border-[var(--adhd-border)] pt-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--adhd-text-muted)]">Recent sessions</p>
+                            <ul className="mt-1 space-y-0.5 max-h-24 overflow-y-auto">
+                              {allSessions.slice(0, 4).map((s) => (
+                                <li key={s.id} className="flex items-center justify-between gap-2 text-[10px] text-[var(--adhd-text-muted)]">
+                                  <span className="truncate">
+                                    {new Date(s.actualStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}{' '}
+                                    {new Date(s.actualStart).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                  <span className="shrink-0">
+                                    {s.actualEnd ? `${computeMinutes(s.actualStart, s.actualEnd)} min` : `${computeMinutes(s.actualStart)}+ min`}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               <input name="title" type="text" defaultValue={selectedEvent.title} required className="w-full rounded-xl border-2 border-[var(--adhd-border)] px-4 py-3 text-base text-[var(--adhd-text)] focus:border-[var(--adhd-accent)] focus:outline-none" />
               <div className="grid grid-cols-2 gap-3">
                 <label className="text-sm font-semibold text-[var(--adhd-text-muted)]">Start</label>
@@ -1190,6 +1440,203 @@ export default function Calendar({
               </div>
             </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Close your day / Log how it went modal */}
+      {closeDayModalOpen && closeDayDate && getEventCompletion && setEventCompletion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setCloseDayModalOpen(false)}>
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border-2 border-[var(--adhd-border)] bg-[var(--adhd-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-[var(--adhd-text)]">Log how it went</h3>
+            <p className="mt-1 text-sm text-[var(--adhd-text-muted)]">{formatDate(closeDayDate)}</p>
+            <p className="mt-2 text-sm text-[var(--adhd-text-muted)]">For each planned item: mark outcome and what you did instead (if skipped or partial).</p>
+            <ul className="mt-4 space-y-4">
+              {eventsOnDayForLog.map((ev) => {
+                const comp = getEventCompletion(closeDayDate, ev.id);
+                return (
+                  <li key={ev.id} className="rounded-xl border-2 border-[var(--adhd-border)] bg-[var(--adhd-bg)]/50 p-3">
+                    <p className="text-sm font-semibold text-[var(--adhd-text)]">{ev.title}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(['done', 'partial', 'skipped'] as const).map((status) => (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => setEventCompletion(closeDayDate, ev.id, status, comp?.note, comp?.whatIdidInstead)}
+                          className={`rounded-lg px-2.5 py-1 text-xs font-medium ${
+                            comp?.status === status
+                              ? status === 'done'
+                                ? 'bg-[var(--adhd-success)] text-white'
+                                : status === 'partial'
+                                  ? 'bg-amber-500 text-white'
+                                  : 'bg-stone-400 text-white'
+                              : 'bg-[var(--adhd-bg)] text-[var(--adhd-text-muted)] hover:bg-[var(--adhd-border)] hover:text-[var(--adhd-text)]'
+                          }`}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                    <label className="mt-2 block text-xs font-medium text-[var(--adhd-text-muted)]">What did you do instead?</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Scrolled Twitter, took a nap, did something else"
+                      defaultValue={comp?.whatIdidInstead}
+                      onBlur={(e) => {
+                        const what = e.target.value.trim();
+                        setEventCompletion(closeDayDate, ev.id, comp?.status ?? 'skipped', comp?.note, what || undefined);
+                      }}
+                      className="mt-0.5 w-full rounded-lg border-2 border-[var(--adhd-border)] px-3 py-2 text-sm text-[var(--adhd-text)] placeholder:text-[var(--adhd-text-muted)] focus:border-[var(--adhd-accent)] focus:outline-none"
+                    />
+                    <label className="mt-2 block text-xs font-medium text-[var(--adhd-text-muted)]">Note / reason (optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Meeting cancelled, too tired"
+                      defaultValue={comp?.note}
+                      onBlur={(e) => {
+                        const note = e.target.value.trim();
+                        setEventCompletion(closeDayDate, ev.id, comp?.status ?? 'skipped', note || undefined, comp?.whatIdidInstead);
+                      }}
+                      className="mt-0.5 w-full rounded-lg border-2 border-[var(--adhd-border)] px-3 py-2 text-sm text-[var(--adhd-text)] placeholder:text-[var(--adhd-text-muted)] focus:border-[var(--adhd-accent)] focus:outline-none"
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setCloseDayModalOpen(false)}
+                className="rounded-xl bg-[var(--adhd-accent)] px-5 py-3 text-base font-bold text-white hover:opacity-90"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Big focus modal: always-visible \"what I'm working on\" with live time */}
+      {focusModalEvent && onStartFocusSession && onEndFocusSession && onUpdateFocusSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setFocusModalEvent(null)}>
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border-2 border-[var(--adhd-border)] bg-[var(--adhd-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            {(() => {
+              const ev = focusModalEvent;
+              const active = getActiveFocusSessionForEvent(ev.id);
+              const sessionsForEvent = focusSessions
+                .filter((s) => s.eventId === ev.id)
+                .slice()
+                .sort((a, b) => b.actualStart.localeCompare(a.actualStart));
+              const computeMinutes = (startIso: string, endIso?: string) => {
+                const start = new Date(startIso).getTime();
+                const end = endIso ? new Date(endIso).getTime() : focusSessionTick;
+                return Math.max(1, Math.round((end - start) / 60000));
+              };
+
+              const handleStop = () => {
+                if (active) {
+                  onEndFocusSession(active.id);
+                  setFocusSessionTick(Date.now());
+                }
+              };
+
+              return (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--adhd-text-muted)] mb-1">Now focusing on</p>
+                  <h3 className="text-2xl font-bold text-[var(--adhd-text)] break-words">{ev.title || '(untitled block)'}</h3>
+                  <p className="mt-1 text-sm text-[var(--adhd-text-muted)]">
+                    Planned: {formatTime(ev.start)} – {formatTime(ev.end)}
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-4">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-medium text-[var(--adhd-text-muted)]">Time spent</span>
+                      <span className="text-3xl font-extrabold text-[var(--adhd-accent)]">
+                        {active ? `${computeMinutes(active.actualStart)} min` : sessionsForEvent[0]?.actualEnd ? `${computeMinutes(sessionsForEvent[0].actualStart, sessionsForEvent[0].actualEnd)} min` : '0 min'}
+                      </span>
+                    </div>
+                    {active ? (
+                      <button
+                        type="button"
+                        onClick={handleStop}
+                        className="rounded-2xl bg-[var(--adhd-success)] px-6 py-3 text-base font-bold text-white hover:opacity-90"
+                      >
+                        End focus
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const current = getActiveFocusSessionForEvent(ev.id);
+                          if (!current) {
+                            onStartFocusSession(ev);
+                            setFocusSessionTick(Date.now());
+                          }
+                        }}
+                        className="rounded-2xl bg-[var(--adhd-accent)] px-6 py-3 text-base font-bold text-white hover:opacity-90"
+                      >
+                        Start focus
+                      </button>
+                    )}
+                  </div>
+
+                  {active && (
+                    <div className="mt-4">
+                      <label className="block text-sm font-semibold text-[var(--adhd-text-muted)] mb-1">
+                        Note (optional — what helped, what pulled you away)
+                      </label>
+                      <textarea
+                        rows={3}
+                        defaultValue={active.note ?? ''}
+                        onBlur={(e) => {
+                          const note = e.target.value.trim();
+                          onUpdateFocusSession(active.id, { note: note || undefined });
+                          setFocusSessionTick(Date.now());
+                        }}
+                        className="w-full rounded-xl border-2 border-[var(--adhd-border)] px-3 py-2 text-sm text-[var(--adhd-text)] placeholder:text-[var(--adhd-text-muted)] focus:border-[var(--adhd-accent)] focus:outline-none"
+                        placeholder="Quick reflection so Future You can spot patterns."
+                      />
+                    </div>
+                  )}
+
+                  {sessionsForEvent.length > 0 && (
+                    <div className="mt-4 border-t border-[var(--adhd-border)] pt-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--adhd-text-muted)] mb-1">Past sessions for this block</p>
+                      <ul className="space-y-1 max-h-32 overflow-y-auto text-xs text-[var(--adhd-text-muted)]">
+                        {sessionsForEvent.slice(0, 8).map((s) => (
+                          <li key={s.id} className="flex items-center justify-between gap-2">
+                            <span className="truncate">
+                              {new Date(s.actualStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}{' '}
+                              {new Date(s.actualStart).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <span className="shrink-0">
+                              {s.actualEnd ? `${computeMinutes(s.actualStart, s.actualEnd)} min` : `${computeMinutes(s.actualStart)}+ min`}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="mt-6 flex flex-wrap justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEvent(ev)}
+                      className="rounded-xl border-2 border-[var(--adhd-border)] px-4 py-2 text-sm font-medium text-[var(--adhd-text-muted)] hover:bg-[var(--adhd-bg)]"
+                    >
+                      Open full event details
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFocusModalEvent(null)}
+                      className="rounded-xl bg-[var(--adhd-bg)] px-4 py-2 text-sm font-semibold text-[var(--adhd-text)] hover:bg-[var(--adhd-border)]"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1288,6 +1735,228 @@ function DailyItemsSection({
         />
         <button type="submit" className="shrink-0 rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600">Add</button>
       </form>
+    </div>
+  );
+}
+
+function WeeklyItemsSection({
+  items,
+  weekKey,
+  getWeeklyLog,
+  onToggleLog,
+  onAddItem,
+  onUpdateItem,
+  onRemoveItem,
+}: {
+  items: WeeklyRecurringItem[];
+  weekKey: string;
+  getWeeklyLog: (weeklyItemId: string, weekKey: string) => WeeklyItemLog | undefined;
+  onToggleLog: (weeklyItemId: string, weekKey: string) => void;
+  onAddItem: (title: string) => void;
+  onUpdateItem?: (id: string, patch: Partial<WeeklyRecurringItem>) => void;
+  onRemoveItem?: (id: string) => void;
+}) {
+  const [newTitle, setNewTitle] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const sorted = useMemo(() => [...items].sort((a, b) => a.order - b.order), [items]);
+
+  return (
+    <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+      <span className="text-sm font-bold uppercase tracking-wide text-blue-700">Weekly Items</span>
+      <p className="mt-0.5 text-xs text-blue-600">Repeat every week — check off once per week</p>
+      <ul className="mt-3 space-y-2">
+        {sorted.map((item) => {
+          const log = getWeeklyLog(item.id, weekKey);
+          const done = log?.done ?? false;
+          return (
+            <li key={item.id} className="group flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-blue-100/60">
+              <input
+                type="checkbox"
+                checked={done}
+                onChange={() => onToggleLog(item.id, weekKey)}
+                className="h-5 w-5 shrink-0 rounded accent-[var(--adhd-success)]"
+              />
+              {editingId === item.id && onUpdateItem ? (
+                <input
+                  type="text"
+                  defaultValue={item.title}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const v = (e.target as HTMLInputElement).value.trim();
+                      if (v) onUpdateItem(item.id, { title: v });
+                      setEditingId(null);
+                    }
+                    if (e.key === 'Escape') setEditingId(null);
+                  }}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v) onUpdateItem(item.id, { title: v });
+                    setEditingId(null);
+                  }}
+                  className="flex-1 min-w-0 rounded border border-blue-300 px-2 py-1 text-sm focus:outline-none focus:border-blue-500"
+                  autoFocus
+                />
+              ) : (
+                <>
+                  <span
+                    className={`min-w-0 flex-1 text-sm font-medium ${done ? 'text-blue-400 line-through' : 'text-blue-900'}`}
+                    onClick={() => setEditingId(item.id)}
+                  >
+                    {item.title}
+                  </span>
+                  {onRemoveItem && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveItem(item.id)}
+                      className="rounded-lg px-2 py-1 text-[11px] font-medium text-red-600 opacity-0 group-hover:opacity-100 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (!newTitle.trim()) return;
+            onAddItem(newTitle);
+            setNewTitle('');
+          }}
+          className="flex items-center justify-center w-9 h-9 rounded-xl border-2 border-dashed border-blue-300 text-blue-500 hover:border-blue-500 hover:bg-blue-100 text-lg font-bold"
+          title="Add weekly item"
+        >
+          +
+        </button>
+        <input
+          type="text"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newTitle.trim()) {
+              onAddItem(newTitle);
+              setNewTitle('');
+            }
+          }}
+          placeholder="Add weekly item"
+          className="flex-1 rounded-lg border border-blue-200 px-2 py-1 text-sm text-blue-900 placeholder:text-blue-300 focus:outline-none focus:border-blue-500"
+        />
+      </div>
+    </div>
+  );
+}
+
+function MonthlyItemsSection({
+  items,
+  monthKey,
+  getMonthlyLog,
+  onToggleLog,
+  onAddItem,
+  onUpdateItem,
+  onRemoveItem,
+}: {
+  items: MonthlyRecurringItem[];
+  monthKey: string;
+  getMonthlyLog: (monthlyItemId: string, monthKey: string) => MonthlyItemLog | undefined;
+  onToggleLog: (monthlyItemId: string, monthKey: string) => void;
+  onAddItem: (title: string) => void;
+  onUpdateItem?: (id: string, patch: Partial<MonthlyRecurringItem>) => void;
+  onRemoveItem?: (id: string) => void;
+}) {
+  const [newTitle, setNewTitle] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const sorted = useMemo(() => [...items].sort((a, b) => a.order - b.order), [items]);
+
+  return (
+    <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50/50 p-3">
+      <span className="text-sm font-bold uppercase tracking-wide text-purple-700">Monthly Items</span>
+      <p className="mt-0.5 text-xs text-purple-600">Repeat every month — check off once per month</p>
+      <ul className="mt-3 space-y-2">
+        {sorted.map((item) => {
+          const log = getMonthlyLog(item.id, monthKey);
+          const done = log?.done ?? false;
+          return (
+            <li key={item.id} className="group flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-purple-100/60">
+              <input
+                type="checkbox"
+                checked={done}
+                onChange={() => onToggleLog(item.id, monthKey)}
+                className="h-5 w-5 shrink-0 rounded accent-[var(--adhd-success)]"
+              />
+              {editingId === item.id && onUpdateItem ? (
+                <input
+                  type="text"
+                  defaultValue={item.title}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const v = (e.target as HTMLInputElement).value.trim();
+                      if (v) onUpdateItem(item.id, { title: v });
+                      setEditingId(null);
+                    }
+                    if (e.key === 'Escape') setEditingId(null);
+                  }}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v) onUpdateItem(item.id, { title: v });
+                    setEditingId(null);
+                  }}
+                  className="flex-1 min-w-0 rounded border border-purple-300 px-2 py-1 text-sm focus:outline-none focus:border-purple-500"
+                  autoFocus
+                />
+              ) : (
+                <>
+                  <span
+                    className={`min-w-0 flex-1 text-sm font-medium ${done ? 'text-purple-400 line-through' : 'text-purple-900'}`}
+                    onClick={() => setEditingId(item.id)}
+                  >
+                    {item.title}
+                  </span>
+                  {onRemoveItem && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveItem(item.id)}
+                      className="rounded-lg px-2 py-1 text-[11px] font-medium text-red-600 opacity-0 group-hover:opacity-100 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (!newTitle.trim()) return;
+            onAddItem(newTitle);
+            setNewTitle('');
+          }}
+          className="flex items-center justify-center w-9 h-9 rounded-xl border-2 border-dashed border-purple-300 text-purple-500 hover:border-purple-500 hover:bg-purple-100 text-lg font-bold"
+          title="Add monthly item"
+        >
+          +
+        </button>
+        <input
+          type="text"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newTitle.trim()) {
+              onAddItem(newTitle);
+              setNewTitle('');
+            }
+          }}
+          placeholder="Add monthly item"
+          className="flex-1 rounded-lg border border-purple-200 px-2 py-1 text-sm text-purple-900 placeholder:text-purple-300 focus:outline-none focus:border-purple-500"
+        />
+      </div>
     </div>
   );
 }

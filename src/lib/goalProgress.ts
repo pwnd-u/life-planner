@@ -118,3 +118,41 @@ function formatChartDateMonth(iso: string): string {
   const d = new Date(iso + 'T12:00:00');
   return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 }
+
+// ---- OKR / Milestone helpers ----
+
+export function getMilestoneProgress(goal: TrackedGoal): { done: number; total: number } | null {
+  if (goal.type !== 'milestone' || !goal.milestoneSteps) return null;
+  const total = goal.milestoneSteps.length;
+  const done = goal.milestoneSteps.filter((s) => s.done).length;
+  return { done, total };
+}
+
+export function isKRComplete(goal: TrackedGoal, logs: GoalLog[]): boolean {
+  if (goal.type === 'milestone') {
+    const p = getMilestoneProgress(goal);
+    return p != null && p.done === p.total && p.total > 0;
+  }
+  if (goal.type === 'numeric') {
+    const p = getNumericProgress(goal, logs);
+    return p != null && p.progress >= 1;
+  }
+  return false;
+}
+
+export function getLastActivityDate(goal: TrackedGoal, logs: GoalLog[]): string | undefined {
+  const goalLogs = logs
+    .filter((l) => l.trackedGoalId === goal.id)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  return goalLogs[0]?.date;
+}
+
+export function getObjectiveProgress(
+  objectiveId: string,
+  trackedGoals: TrackedGoal[],
+  goalLogs: GoalLog[]
+): { done: number; total: number } {
+  const krs = trackedGoals.filter((g) => g.objectiveId === objectiveId);
+  const done = krs.filter((g) => isKRComplete(g, goalLogs)).length;
+  return { done, total: krs.length };
+}

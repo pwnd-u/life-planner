@@ -65,6 +65,8 @@ export default function MyList({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [focusedSubtaskId, setFocusedSubtaskId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const [showCompletedWork, setShowCompletedWork] = useState(false);
+  const [showCompletedPersonal, setShowCompletedPersonal] = useState(false);
 
   const rootItems = useMemo(
     () => myListItems.filter((i) => !i.parentId).sort((a, b) => a.order - b.order),
@@ -72,6 +74,30 @@ export default function MyList({
   );
   const getChildren = (parentId: string) =>
     myListItems.filter((i) => i.parentId === parentId).sort((a, b) => a.order - b.order);
+
+  const { activeRoots, completedRoots } = useMemo(() => {
+    const active: MyListItem[] = [];
+    const completed: MyListItem[] = [];
+    rootItems.forEach((item) => {
+      const children = getChildren(item.id);
+      const isParent = children.length > 0;
+      const allSubtasksDone = isParent && children.every((c) => c.completed ?? false);
+      const isCompleted = (item.completed ?? false) || allSubtasksDone;
+      (isCompleted ? completed : active).push(item);
+    });
+    return { activeRoots: active, completedRoots: completed };
+  }, [rootItems, myListItems]);
+
+  const { activeWorkRoots, activePersonalRoots, completedWorkRoots, completedPersonalRoots } = useMemo(() => {
+    const work = (arr: MyListItem[]) => arr.filter((i) => i.category === 'work');
+    const personal = (arr: MyListItem[]) => arr.filter((i) => i.category === 'personal');
+    return {
+      activeWorkRoots: work(activeRoots),
+      activePersonalRoots: personal(activeRoots),
+      completedWorkRoots: work(completedRoots),
+      completedPersonalRoots: personal(completedRoots),
+    };
+  }, [activeRoots, completedRoots]);
 
   // Every parent must have at least one subtask; ensure any root with 0 children gets one empty subtask
   useEffect(() => {
@@ -185,7 +211,7 @@ export default function MyList({
   };
 
   return (
-    <div className="w-full max-w-5xl">
+    <div className="w-full max-w-[1600px]">
       <form onSubmit={handleQuickAdd} className="flex items-center gap-2 mb-4">
         <input
           type="text"
@@ -210,6 +236,166 @@ export default function MyList({
         )}
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Work */}
+        <section className="flex flex-col min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h2 className="text-lg font-bold text-[var(--adhd-text)]">Work</h2>
+            <button
+              type="button"
+              onClick={() => onAddItem({ ...defaultItem(), title: '', category: 'work' })}
+              className="shrink-0 rounded-lg bg-[var(--adhd-accent)] text-white px-3 py-1.5 text-sm font-medium hover:opacity-90"
+            >
+              + Add
+            </button>
+          </div>
+          <ul className="space-y-0.5 list-none pl-0">
+            {activeWorkRoots.map((item) => (
+              <ParentOrStandaloneRow
+                key={item.id}
+                item={item}
+                children={getChildren(item.id)}
+                onUpdate={handleUpdate}
+                onRemove={handleRemove}
+                onAddSub={() => {
+                  const id = addOne('', item.id);
+                  if (id) setFocusedSubtaskId(id);
+                }}
+                expanded={expandedIds[item.id] ?? false}
+                onSetExpanded={(v) => setExpandedIds((prev) => ({ ...prev, [item.id]: v }))}
+                getChildren={getChildren}
+                draggingId={draggingId}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDrop={handleDrop}
+                focusedSubtaskId={focusedSubtaskId}
+                onClearFocusSubtask={() => setFocusedSubtaskId(null)}
+              />
+            ))}
+          </ul>
+          {completedWorkRoots.length > 0 && (
+            <div className="mt-4 border-t border-[var(--adhd-border)] pt-3">
+              <button
+                type="button"
+                onClick={() => setShowCompletedWork((v) => !v)}
+                className="flex w-full items-center justify-between rounded-lg bg-[var(--adhd-bg)] px-3 py-2 text-sm font-medium text-[var(--adhd-text-muted)] hover:bg-[var(--adhd-accent-soft)] hover:text-[var(--adhd-text)]"
+              >
+                <span>Completed ({completedWorkRoots.length})</span>
+                <span>{showCompletedWork ? '▼' : '▶'}</span>
+              </button>
+              {showCompletedWork && (
+                <ul className="mt-2 space-y-0.5 list-none pl-0">
+                  {completedWorkRoots.map((item) => (
+                    <ParentOrStandaloneRow
+                      key={item.id}
+                      item={item}
+                      children={getChildren(item.id)}
+                      onUpdate={handleUpdate}
+                      onRemove={handleRemove}
+                      onAddSub={() => {
+                        const id = addOne('', item.id);
+                        if (id) setFocusedSubtaskId(id);
+                      }}
+                      expanded={expandedIds[item.id] ?? false}
+                      onSetExpanded={(v) => setExpandedIds((prev) => ({ ...prev, [item.id]: v }))}
+                      getChildren={getChildren}
+                      draggingId={draggingId}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onDrop={handleDrop}
+                      focusedSubtaskId={focusedSubtaskId}
+                      onClearFocusSubtask={() => setFocusedSubtaskId(null)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {activeWorkRoots.length === 0 && completedWorkRoots.length === 0 && (
+            <p className="text-sm text-[var(--adhd-text-muted)] py-4">No work items. Use + Add or the category dropdown on a task.</p>
+          )}
+        </section>
+
+        {/* Right: Personal */}
+        <section className="flex flex-col min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h2 className="text-lg font-bold text-[var(--adhd-text)]">Personal</h2>
+            <button
+              type="button"
+              onClick={() => onAddItem({ ...defaultItem(), title: '' })}
+              className="shrink-0 rounded-lg bg-[var(--adhd-accent)] text-white px-3 py-1.5 text-sm font-medium hover:opacity-90"
+            >
+              + Add
+            </button>
+          </div>
+          <ul className="space-y-0.5 list-none pl-0">
+            {activePersonalRoots.map((item) => (
+              <ParentOrStandaloneRow
+                key={item.id}
+                item={item}
+                children={getChildren(item.id)}
+                onUpdate={handleUpdate}
+                onRemove={handleRemove}
+                onAddSub={() => {
+                  const id = addOne('', item.id);
+                  if (id) setFocusedSubtaskId(id);
+                }}
+                expanded={expandedIds[item.id] ?? false}
+                onSetExpanded={(v) => setExpandedIds((prev) => ({ ...prev, [item.id]: v }))}
+                getChildren={getChildren}
+                draggingId={draggingId}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDrop={handleDrop}
+                focusedSubtaskId={focusedSubtaskId}
+                onClearFocusSubtask={() => setFocusedSubtaskId(null)}
+              />
+            ))}
+          </ul>
+          {completedPersonalRoots.length > 0 && (
+            <div className="mt-4 border-t border-[var(--adhd-border)] pt-3">
+              <button
+                type="button"
+                onClick={() => setShowCompletedPersonal((v) => !v)}
+                className="flex w-full items-center justify-between rounded-lg bg-[var(--adhd-bg)] px-3 py-2 text-sm font-medium text-[var(--adhd-text-muted)] hover:bg-[var(--adhd-accent-soft)] hover:text-[var(--adhd-text)]"
+              >
+                <span>Completed ({completedPersonalRoots.length})</span>
+                <span>{showCompletedPersonal ? '▼' : '▶'}</span>
+              </button>
+              {showCompletedPersonal && (
+                <ul className="mt-2 space-y-0.5 list-none pl-0">
+                  {completedPersonalRoots.map((item) => (
+                    <ParentOrStandaloneRow
+                      key={item.id}
+                      item={item}
+                      children={getChildren(item.id)}
+                      onUpdate={handleUpdate}
+                      onRemove={handleRemove}
+                      onAddSub={() => {
+                        const id = addOne('', item.id);
+                        if (id) setFocusedSubtaskId(id);
+                      }}
+                      expanded={expandedIds[item.id] ?? false}
+                      onSetExpanded={(v) => setExpandedIds((prev) => ({ ...prev, [item.id]: v }))}
+                      getChildren={getChildren}
+                      draggingId={draggingId}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onDrop={handleDrop}
+                      focusedSubtaskId={focusedSubtaskId}
+                      onClearFocusSubtask={() => setFocusedSubtaskId(null)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {activePersonalRoots.length === 0 && completedPersonalRoots.length === 0 && (
+            <p className="text-sm text-[var(--adhd-text-muted)] py-4">No personal items. Use + Add or the main input above.</p>
+          )}
+        </section>
+      </div>
+
       {pasteOpen && (
         <div className="mb-4 p-3 rounded-lg border border-[var(--adhd-border)] bg-[var(--adhd-bg)]">
           <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder="Paste lines..." rows={3} className="w-full rounded border border-[var(--adhd-border)] px-2 py-1.5 text-sm mb-2" />
@@ -225,31 +411,6 @@ export default function MyList({
         <summary className="cursor-pointer hover:text-[var(--adhd-text)]">OpenAI key (for AI)</summary>
         <div className="mt-2"><input type="password" defaultValue={openAiApiKey ?? ''} placeholder="sk-..." className="flex-1 rounded border border-[var(--adhd-border)] px-2 py-1 text-sm" onBlur={(e) => setOpenAiApiKey(e.target.value.trim() || undefined)} /></div>
       </details>
-
-      <ul className="space-y-0.5 list-none pl-0">
-        {rootItems.map((item) => (
-          <ParentOrStandaloneRow
-            key={item.id}
-            item={item}
-            children={getChildren(item.id)}
-            onUpdate={handleUpdate}
-            onRemove={handleRemove}
-            onAddSub={() => {
-              const id = addOne('', item.id);
-              if (id) setFocusedSubtaskId(id);
-            }}
-            expanded={expandedIds[item.id] ?? false}
-            onSetExpanded={(v) => setExpandedIds((prev) => ({ ...prev, [item.id]: v }))}
-            getChildren={getChildren}
-            draggingId={draggingId}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDrop={handleDrop}
-            focusedSubtaskId={focusedSubtaskId}
-            onClearFocusSubtask={() => setFocusedSubtaskId(null)}
-          />
-        ))}
-      </ul>
 
       {myListItems.length === 0 && <p className="text-base text-[var(--adhd-text-muted)] py-8 text-center">Type above and press Enter to add a task.</p>}
     </div>
@@ -274,7 +435,7 @@ interface ParentRowProps {
   onClearFocusSubtask: () => void;
 }
 
-function ParentOrStandaloneRow({ item, children, onUpdate, onRemove, onAddSub, expanded, onSetExpanded, getChildren, draggingId, onDragStart, onDragEnd, onDrop, focusedSubtaskId, onClearFocusSubtask }: ParentRowProps) {
+function ParentOrStandaloneRow({ item, children, onUpdate, onRemove, onAddSub, expanded, onSetExpanded, getChildren: _getChildren, draggingId, onDragStart, onDragEnd, onDrop, focusedSubtaskId, onClearFocusSubtask }: ParentRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const isParent = children.length > 0;
@@ -301,7 +462,7 @@ function ParentOrStandaloneRow({ item, children, onUpdate, onRemove, onAddSub, e
     <li className="list-none min-w-0">
       {/* Parent/standalone = one line: checkbox, title, metadata, collapse (always), ⋮ */}
       <div
-        className={`group flex flex-nowrap items-center gap-2 py-1.5 px-2 rounded-lg border border-[var(--adhd-border)] min-w-0 ${draggingId === item.id ? 'bg-[var(--adhd-accent-soft)] border-[var(--adhd-accent)]' : 'bg-[var(--adhd-surface)] hover:border-[var(--adhd-accent)]/40'}`}
+        className={`group flex flex-nowrap items-center gap-2 py-1.5 px-2 rounded-lg border border-[var(--adhd-border)] min-w-0 overflow-x-auto ${draggingId === item.id ? 'bg-[var(--adhd-accent-soft)] border-[var(--adhd-accent)]' : 'bg-[var(--adhd-surface)] hover:border-[var(--adhd-accent)]/40'}`}
         draggable
         onDragStart={() => onDragStart(item.id)}
         onDragEnd={onDragEnd}
@@ -320,7 +481,7 @@ function ParentOrStandaloneRow({ item, children, onUpdate, onRemove, onAddSub, e
           value={item.title}
           onChange={(e) => onUpdate(item.id, { title: e.target.value })}
           placeholder="Task or goal"
-          className={`flex-1 min-w-0 bg-transparent border-none px-1 py-0.5 text-sm font-semibold text-[var(--adhd-text)] focus:outline-none focus:ring-0 placeholder:font-normal placeholder:text-[var(--adhd-text-muted)] ${completed ? 'line-through text-[var(--adhd-text-muted)]' : ''}`}
+          className={`flex-1 min-w-[10rem] bg-transparent border-none px-1 py-0.5 text-sm font-semibold text-[var(--adhd-text)] focus:outline-none focus:ring-0 placeholder:font-normal placeholder:text-[var(--adhd-text-muted)] ${completed ? 'line-through text-[var(--adhd-text-muted)]' : ''}`}
         />
         <div className="flex flex-nowrap items-center gap-1.5 shrink-0 text-xs">
           <select value={item.category} onChange={(e) => onUpdate(item.id, { category: e.target.value as ListItemCategory })} className="rounded border border-[var(--adhd-border)] bg-[var(--adhd-bg)] px-1.5 py-0.5 text-[var(--adhd-text)] focus:border-[var(--adhd-accent)] focus:outline-none" title="Category">

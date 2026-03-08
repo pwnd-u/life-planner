@@ -91,8 +91,20 @@ export interface CapacitySettings {
   bufferPercent: number; // 20–30
 }
 
-// Goal Tracker: numeric (increase/decrease), verbal (daily check-in), weekly (yes/no per week), frequency (N times per period)
-export type TrackedGoalType = 'numeric' | 'verbal' | 'weekly' | 'frequency';
+// OKR Objectives: quarterly goals grouped with measurable key results
+export type ObjectiveStatus = 'focus' | 'stretch';
+
+export interface Objective {
+  id: string;
+  name: string;
+  quarter: string;             // e.g. "2026-Q2"
+  status: ObjectiveStatus;
+  deadline?: string;           // YYYY-MM-DD (defaults to end of quarter)
+  description?: string;        // optional "why" note
+}
+
+// Goal Tracker: numeric (increase/decrease), verbal (daily check-in), weekly (yes/no per week), frequency (N times per period), milestone (one-time deliverable with steps)
+export type TrackedGoalType = 'numeric' | 'verbal' | 'weekly' | 'frequency' | 'milestone';
 
 export type NumericDirection = 'increase' | 'decrease';
 
@@ -117,6 +129,10 @@ export interface TrackedGoal {
   targetCount?: number; // e.g. 3 per day, 4 per week
   /** Optional deadline (YYYY-MM-DD). e.g. "reach 82 kg by June" → deadline end of June. */
   deadline?: string;
+  /** Link to an Objective (quarterly goal). Key results are TrackedGoals with an objectiveId. */
+  objectiveId?: string;
+  /** For milestone type: ordered list of steps to complete. */
+  milestoneSteps?: { text: string; done: boolean }[];
 }
 
 /** One log per goal per day (or per week for weekly goals — date = week start). */
@@ -172,6 +188,44 @@ export interface MyListItem {
   completed?: boolean;
 }
 
+/** Planned vs actual: outcome for an event on a given day. Key = "date:eventId" e.g. "2025-02-19:ev-1". */
+export type EventCompletionStatus = 'done' | 'partial' | 'skipped';
+
+export interface EventCompletion {
+  status: EventCompletionStatus;
+  note?: string;
+  /** What you actually did in that time block (e.g. when skipped: "Scrolled Twitter"). */
+  whatIdidInstead?: string;
+}
+
+/** A focused work session for a calendar event, used to track actual time spent. */
+export interface EventFocusSession {
+  id: string;
+  eventId: string;
+  eventTitle: string;
+  plannedStart: string;
+  plannedEnd: string;
+  actualStart: string;
+  actualEnd?: string;
+  note?: string;
+}
+
+/** AI-generated daily reflection (saved per date). */
+export interface DailyReflection {
+  date: string; // YYYY-MM-DD
+  analysis: string;
+  recommendations: string[];
+  generatedAt: string; // ISO
+}
+
+/** AI-generated weekly reflection (saved per week start). */
+export interface WeeklyReflection {
+  weekStart: string; // YYYY-MM-DD (Monday)
+  analysis: string;
+  recommendations: string[];
+  generatedAt: string;
+}
+
 /** Calendar event (Google Calendar–style). start/end are ISO date-time strings. */
 export type CalendarRecurrence = 'daily' | 'weekly' | 'monthly' | '';
 
@@ -216,7 +270,38 @@ export interface DailyItemLog {
   done: boolean;
 }
 
+/** A recurring weekly checklist item template (appears every week). */
+export interface WeeklyRecurringItem {
+  id: string;
+  title: string;
+  order: number;
+}
+
+/** Per-week completion record for a weekly recurring item. weekKey = Monday of that week (YYYY-MM-DD). */
+export interface WeeklyItemLog {
+  id: string;
+  weeklyItemId: string;
+  weekKey: string;
+  done: boolean;
+}
+
+/** A recurring monthly checklist item template (appears every month). */
+export interface MonthlyRecurringItem {
+  id: string;
+  title: string;
+  order: number;
+}
+
+/** Per-month completion record for a monthly recurring item. monthKey = YYYY-MM. */
+export interface MonthlyItemLog {
+  id: string;
+  monthlyItemId: string;
+  monthKey: string;
+  done: boolean;
+}
+
 export interface AppState {
+  objectives: Objective[];
   goals: Goal[];
   tasks: Task[];
   scheduledBlocks: ScheduledBlock[];
@@ -235,6 +320,18 @@ export interface AppState {
   myListItems: MyListItem[];
   dailyRecurringItems: DailyRecurringItem[];
   dailyItemLogs: DailyItemLog[];
+  weeklyRecurringItems: WeeklyRecurringItem[];
+  weeklyItemLogs: WeeklyItemLog[];
+  monthlyRecurringItems: MonthlyRecurringItem[];
+  monthlyItemLogs: MonthlyItemLog[];
+  /** Planned vs actual: key = "date:eventId", value = completion for that event on that day. */
+  eventCompletions: Record<string, EventCompletion>;
+  /** Focus sessions per event: actual time spent vs planned block. */
+  eventFocusSessions: EventFocusSession[];
+  /** AI daily reflections keyed by date (YYYY-MM-DD). */
+  dailyReflections: Record<string, DailyReflection>;
+  /** AI weekly reflections keyed by week start (YYYY-MM-DD). */
+  weeklyReflections: Record<string, WeeklyReflection>;
   /** Stored locally; used only for OpenAI API calls from this app. */
   openAiApiKey?: string;
   /** Fetched from Google Calendar; read-only in this app. */

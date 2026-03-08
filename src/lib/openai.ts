@@ -174,3 +174,41 @@ Week dates (schedule only on these days): ${payload.weekDates.join(', ')}`;
   }));
   return { blocks };
 }
+
+const DAILY_REFLECTION_SYSTEM = `You are a supportive, concise coach. The user shares their daily data: journal, what they did or didn't do (habits, checklist, planned vs actual). Your job is to give a brief, kind analysis and 1–3 actionable recommendations for the next day.
+
+Respond with a JSON object only, no markdown:
+{
+  "analysis": "2–4 sentences: what went well, what didn't, one pattern or observation.",
+  "recommendations": ["one concrete recommendation", "optional second", "optional third"]
+}
+Keep tone warm and direct. No fluff.`;
+
+/** Get daily reflection from OpenAI. Returns { analysis, recommendations }. */
+export async function getDailyReflection(apiKey: string, payloadText: string): Promise<{ analysis: string; recommendations: string[] }> {
+  const raw = await chat(apiKey, DAILY_REFLECTION_SYSTEM, payloadText);
+  const parsed = JSON.parse(raw) as { analysis?: string; recommendations?: string[] };
+  return {
+    analysis: typeof parsed.analysis === 'string' ? parsed.analysis : '',
+    recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
+  };
+}
+
+const WEEKLY_REFLECTION_SYSTEM = `You are a supportive coach. The user shares their daily reflections for the past week. Find patterns (energy, consistency, overcommitment, sleep, mood, what helped or blocked them). Give 3–5 weekly recommendations.
+
+Respond with a JSON object only, no markdown:
+{
+  "analysis": "A short paragraph: key patterns and what they suggest.",
+  "recommendations": ["recommendation 1", "recommendation 2", "…"]
+}
+Be kind and actionable.`;
+
+/** Get weekly reflection from OpenAI. */
+export async function getWeeklyReflection(apiKey: string, payloadText: string): Promise<{ analysis: string; recommendations: string[] }> {
+  const raw = await chat(apiKey, WEEKLY_REFLECTION_SYSTEM, payloadText);
+  const parsed = JSON.parse(raw) as { analysis?: string; recommendations?: string[] };
+  return {
+    analysis: typeof parsed.analysis === 'string' ? parsed.analysis : '',
+    recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
+  };
+}

@@ -1,4 +1,4 @@
-import type { AppState, CapacitySettings, Goal, Task, ScheduledBlock, Checklist, ChecklistItem, TrackedGoal, GoalLog, JournalEntry, CalendarEvent, CalendarPeriodKey, CalendarPeriodChecklistItem, MyListItem, DailyRecurringItem, DailyItemLog } from './types';
+import type { AppState, CapacitySettings, Goal, Task, ScheduledBlock, Checklist, ChecklistItem, TrackedGoal, GoalLog, JournalEntry, CalendarEvent, CalendarPeriodKey, CalendarPeriodChecklistItem, MyListItem, DailyRecurringItem, DailyItemLog, EventFocusSession, WeeklyRecurringItem, WeeklyItemLog, MonthlyRecurringItem, MonthlyItemLog, Objective } from './types';
 import { DEFAULT_CAPACITY } from './types';
 
 const STORAGE_KEY = 'life-planner-state';
@@ -8,6 +8,7 @@ const OLD_STORAGE_KEY = 'adhd-planner-state';
 export function mergeParsedState(parsed: Partial<AppState> | null): AppState {
   if (!parsed) return getInitialState();
   return {
+    objectives: parsed.objectives ?? [],
     goals: parsed.goals ?? [],
     tasks: parsed.tasks ?? [],
     scheduledBlocks: parsed.scheduledBlocks ?? [],
@@ -24,6 +25,14 @@ export function mergeParsedState(parsed: Partial<AppState> | null): AppState {
     myListItems: parsed.myListItems ?? [],
     dailyRecurringItems: parsed.dailyRecurringItems ?? [],
     dailyItemLogs: parsed.dailyItemLogs ?? [],
+    weeklyRecurringItems: parsed.weeklyRecurringItems ?? [],
+    weeklyItemLogs: parsed.weeklyItemLogs ?? [],
+    monthlyRecurringItems: parsed.monthlyRecurringItems ?? [],
+    monthlyItemLogs: parsed.monthlyItemLogs ?? [],
+    eventCompletions: parsed.eventCompletions ?? {},
+    eventFocusSessions: parsed.eventFocusSessions ?? [],
+    dailyReflections: parsed.dailyReflections ?? {},
+    weeklyReflections: parsed.weeklyReflections ?? {},
     openAiApiKey: parsed.openAiApiKey,
     googleCalendarEvents: parsed.googleCalendarEvents ?? [],
     googleClientId: parsed.googleClientId,
@@ -55,6 +64,7 @@ function save(state: AppState): void {
 
 export function getInitialState(): AppState {
   return {
+    objectives: [],
     goals: [],
     tasks: [],
     scheduledBlocks: [],
@@ -70,6 +80,14 @@ export function getInitialState(): AppState {
     myListItems: [],
     dailyRecurringItems: [],
     dailyItemLogs: [],
+    weeklyRecurringItems: [],
+    weeklyItemLogs: [],
+    monthlyRecurringItems: [],
+    monthlyItemLogs: [],
+    eventCompletions: {},
+    eventFocusSessions: [],
+    dailyReflections: {},
+    weeklyReflections: {},
     googleCalendarEvents: [],
   };
 }
@@ -80,6 +98,7 @@ export const store = {
 };
 
 export type StoreUpdate =
+  | { type: 'setObjectives'; objectives: Objective[] }
   | { type: 'setGoals'; goals: Goal[] }
   | { type: 'setTasks'; tasks: Task[] }
   | { type: 'setScheduledBlocks'; blocks: ScheduledBlock[] }
@@ -96,6 +115,14 @@ export type StoreUpdate =
   | { type: 'setMyListItems'; myListItems: MyListItem[] }
   | { type: 'setDailyRecurringItems'; items: DailyRecurringItem[] }
   | { type: 'setDailyItemLogs'; logs: DailyItemLog[] }
+  | { type: 'setWeeklyRecurringItems'; items: WeeklyRecurringItem[] }
+  | { type: 'setWeeklyItemLogs'; logs: WeeklyItemLog[] }
+  | { type: 'setMonthlyRecurringItems'; items: MonthlyRecurringItem[] }
+  | { type: 'setMonthlyItemLogs'; logs: MonthlyItemLog[] }
+  | { type: 'setEventCompletions'; eventCompletions: Record<string, import('./types').EventCompletion> }
+  | { type: 'setEventFocusSessions'; sessions: EventFocusSession[] }
+  | { type: 'setDailyReflections'; dailyReflections: Record<string, import('./types').DailyReflection> }
+  | { type: 'setWeeklyReflections'; weeklyReflections: Record<string, import('./types').WeeklyReflection> }
   | { type: 'setOpenAiApiKey'; key: string | undefined }
   | { type: 'setGoogleCalendarEvents'; googleCalendarEvents: CalendarEvent[] }
   | { type: 'setGoogleClientId'; googleClientId: string | undefined }
@@ -103,6 +130,8 @@ export type StoreUpdate =
 
 export function applyUpdate(state: AppState, update: StoreUpdate): AppState {
   switch (update.type) {
+    case 'setObjectives':
+      return { ...state, objectives: update.objectives };
     case 'setGoals':
       return { ...state, goals: update.goals };
     case 'setTasks':
@@ -135,6 +164,22 @@ export function applyUpdate(state: AppState, update: StoreUpdate): AppState {
       return { ...state, dailyRecurringItems: update.items };
     case 'setDailyItemLogs':
       return { ...state, dailyItemLogs: update.logs };
+    case 'setWeeklyRecurringItems':
+      return { ...state, weeklyRecurringItems: update.items };
+    case 'setWeeklyItemLogs':
+      return { ...state, weeklyItemLogs: update.logs };
+    case 'setMonthlyRecurringItems':
+      return { ...state, monthlyRecurringItems: update.items };
+    case 'setMonthlyItemLogs':
+      return { ...state, monthlyItemLogs: update.logs };
+    case 'setEventCompletions':
+      return { ...state, eventCompletions: update.eventCompletions };
+    case 'setEventFocusSessions':
+      return { ...state, eventFocusSessions: update.sessions };
+    case 'setDailyReflections':
+      return { ...state, dailyReflections: update.dailyReflections };
+    case 'setWeeklyReflections':
+      return { ...state, weeklyReflections: update.weeklyReflections };
     case 'setOpenAiApiKey':
       return { ...state, openAiApiKey: update.key };
     case 'setGoogleCalendarEvents':
