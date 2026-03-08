@@ -226,6 +226,8 @@ export default function GoalTracker({
               showKRFormId={showKRForm}
               onShowKRForm={setShowKRForm}
               onAddGoal={onAddGoal}
+              onUpdateGoal={onUpdateGoal}
+              unlinkedGoals={unlinkedGoals}
             />
           ))}
         </div>
@@ -252,6 +254,8 @@ export default function GoalTracker({
               showKRFormId={showKRForm}
               onShowKRForm={setShowKRForm}
               onAddGoal={onAddGoal}
+              onUpdateGoal={onUpdateGoal}
+              unlinkedGoals={unlinkedGoals}
             />
           ))}
         </div>
@@ -322,6 +326,7 @@ export default function GoalTracker({
       {editingGoal && (
         <EditGoalModal
           goal={editingGoal}
+          objectives={objectives}
           onSave={(id, patch) => { onUpdateGoal(id, patch); setEditingGoal(null); }}
           onClose={() => setEditingGoal(null)}
         />
@@ -348,6 +353,8 @@ function ObjectiveSection({
   showKRFormId,
   onShowKRForm,
   onAddGoal,
+  onUpdateGoal,
+  unlinkedGoals,
 }: {
   objective: Objective;
   trackedGoals: TrackedGoal[];
@@ -364,8 +371,11 @@ function ObjectiveSection({
   showKRFormId: string | null;
   onShowKRForm: (id: string | null) => void;
   onAddGoal: Props['onAddGoal'];
+  onUpdateGoal: Props['onUpdateGoal'];
+  unlinkedGoals: TrackedGoal[];
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
   const krs = trackedGoals.filter((g) => g.objectiveId === objective.id);
   const progress = getObjectiveProgress(objective.id, trackedGoals, goalLogs);
 
@@ -430,13 +440,47 @@ function ObjectiveSection({
               onClose={() => onShowKRForm(null)}
             />
           ) : (
-            <button
-              type="button"
-              onClick={() => onShowKRForm(objective.id)}
-              className="mt-3 text-sm font-medium text-[var(--adhd-accent,#57534e)] hover:underline"
-            >
-              + Add key result
-            </button>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => onShowKRForm(objective.id)}
+                className="text-sm font-medium text-[var(--adhd-accent,#57534e)] hover:underline"
+              >
+                + Add key result
+              </button>
+              {unlinkedGoals.length > 0 && (
+                <>
+                  {!showLinkPicker ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowLinkPicker(true)}
+                      className="text-sm font-medium text-stone-500 hover:underline"
+                    >
+                      Link existing
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <select
+                        defaultValue=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            onUpdateGoal(e.target.value, { objectiveId: objective.id });
+                            setShowLinkPicker(false);
+                          }
+                        }}
+                        className="rounded border border-stone-300 px-2 py-1 text-sm text-stone-900"
+                      >
+                        <option value="" disabled>Pick a key result…</option>
+                        {unlinkedGoals.map((g) => (
+                          <option key={g.id} value={g.id}>{g.name} ({g.type})</option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={() => setShowLinkPicker(false)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -628,15 +672,18 @@ function AddKRForm({
 
 function EditGoalModal({
   goal,
+  objectives,
   onSave,
   onClose,
 }: {
   goal: TrackedGoal;
+  objectives: Objective[];
   onSave: (id: string, patch: Partial<TrackedGoal>) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(goal.name);
   const [deadline, setDeadline] = useState(goal.deadline ?? '');
+  const [objectiveId, setObjectiveId] = useState(goal.objectiveId ?? '');
   const [targetValue, setTargetValue] = useState(goal.targetValue != null ? String(goal.targetValue) : '');
   const [direction, setDirection] = useState<NumericDirection>(goal.direction ?? 'decrease');
   const [unit, setUnit] = useState(goal.unit ?? '');
@@ -652,6 +699,7 @@ function EditGoalModal({
     const patch: Partial<TrackedGoal> = {
       name: name.trim(),
       deadline: deadline.trim() || undefined,
+      objectiveId: objectiveId || undefined,
     };
     if (goal.type === 'numeric') {
       patch.targetValue = targetValue !== '' ? Number(targetValue) : undefined;
@@ -676,6 +724,19 @@ function EditGoalModal({
           <div>
             <label className="block text-xs font-medium text-stone-500 mb-0.5">Name</label>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded border border-stone-300 px-3 py-2 text-stone-900" required />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-stone-500 mb-0.5">Objective</label>
+            <select
+              value={objectiveId}
+              onChange={(e) => setObjectiveId(e.target.value)}
+              className="w-full rounded border border-stone-300 px-3 py-2 text-stone-900"
+            >
+              <option value="">None (unlinked)</option>
+              {objectives.map((o) => (
+                <option key={o.id} value={o.id}>{o.name} ({o.quarter})</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-stone-500 mb-0.5">Deadline (optional)</label>
