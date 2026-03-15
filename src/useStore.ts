@@ -1,17 +1,33 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AppState, Goal, Task, ScheduledBlock, CapacitySettings, Checklist, ChecklistItem, TrackedGoal, GoalLog, JournalEntry, CalendarEvent, CalendarPeriodKey, CalendarPeriodChecklistItem, MyListItem, DailyRecurringItem, DailyItemLog, EventCompletion, EventCompletionStatus, DailyReflection, WeeklyReflection, EventFocusSession, WeeklyRecurringItem, WeeklyItemLog, MonthlyRecurringItem, MonthlyItemLog, Objective } from './types';
-import { applyUpdate, type StoreUpdate } from './store';
+import { applyUpdate, mergeParsedState, STORAGE_KEY, type StoreUpdate } from './store';
 import { todayStr, yesterdayStr } from './lib/date';
-import { loadFromSupabase, saveToSupabase, loadLocal, saveLocal } from './lib/persistence';
+import { loadFromSupabase, saveToSupabase, loadLocal, saveLocal, getLocalSavedAt } from './lib/persistence';
 import { useAuth } from './contexts/AuthContext';
 
 export function useStore(): [AppState, (update: StoreUpdate) => void] {
   const { user } = useAuth();
   const signedIn = Boolean(user);
   const cloudLoadedRef = useRef(false);
+  const fromOtherTabRef = useRef(false);
   const [state, setState] = useState<AppState>(() => loadLocal());
 
-  // When user signs in, load state from Supabase once (then allow local edits to push up)
+  // Cross-tab sync: when another tab writes to localStorage, pick up
+  // the change instantly so two windows never diverge.
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || !e.newValue) return;
+      try {
+        fromOtherTabRef.current = true;
+        setState(mergeParsedState(JSON.parse(e.newValue)));
+      } catch { /* corrupted JSON — ignore */ }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // When user signs in, load state from Supabase once — but only use cloud
+  // if it's at least as recent as the local copy to avoid overwriting unsaved changes.
   useEffect(() => {
     if (!signedIn) {
       cloudLoadedRef.current = false;
@@ -19,13 +35,25 @@ export function useStore(): [AppState, (update: StoreUpdate) => void] {
     }
     if (cloudLoadedRef.current) return;
     cloudLoadedRef.current = true;
-    loadFromSupabase().then((cloud) => {
-      if (cloud) setState(cloud);
+    loadFromSupabase().then((result) => {
+      if (!result) return;
+      const localTs = getLocalSavedAt();
+      if (result.cloudSavedAt >= localTs) {
+        setState(result.state);
+      } else {
+        saveToSupabase(loadLocal());
+      }
     });
   }, [signedIn]);
 
-  // Persist state: Supabase (debounced) when signed in, else localStorage
+  // Persist state: Supabase (debounced) when signed in, else localStorage.
+  // Skip saving when the update came from another tab's storage event
+  // to avoid a write-loop between tabs.
   useEffect(() => {
+    if (fromOtherTabRef.current) {
+      fromOtherTabRef.current = false;
+      return;
+    }
     if (signedIn) {
       saveToSupabase(state);
     } else {
@@ -975,7 +1003,7 @@ export function useEventCompletions(state: AppState, dispatch: (u: StoreUpdate) 
   const completions = state.eventCompletions ?? {};
 
   const setCompletion = useCallback(
-    (date: string, eventId: string, status: EventCompletionStatus, note?: string, whatIdidInstead?: string) => {
+    (date: string, eventId: string, status: EventCompletionStatus, note?: string, whatIdidInstead?: string, onPhone?: boolean) => {
       const key = `${date}:${eventId}`;
       const existing = completions[key];
       dispatch({
@@ -986,6 +1014,7 @@ export function useEventCompletions(state: AppState, dispatch: (u: StoreUpdate) 
             status,
             note: note !== undefined ? (note.trim() || undefined) : existing?.note,
             whatIdidInstead: whatIdidInstead !== undefined ? (whatIdidInstead.trim() || undefined) : existing?.whatIdidInstead,
+            onPhone: onPhone !== undefined ? onPhone : existing?.onPhone,
           },
         },
       });
@@ -1052,8 +1081,23 @@ export function useReflections(state: AppState, dispatch: (u: StoreUpdate) => vo
 }
 
 // ---- Event focus sessions (time tracking per event) ----
+const MAX_FOCUS_SESSION_MS = 12 * 60 * 60 * 1000; // 12h — auto-end sessions left open longer
+
 export function useEventFocusSessions(state: AppState, dispatch: (u: StoreUpdate) => void) {
   const sessions = state.eventFocusSessions ?? [];
+
+  // Auto-end sessions that have been "running" for more than 12h (forgotten / stale)
+  useEffect(() => {
+    const now = Date.now();
+    const updated = sessions.map((s) => {
+      if (s.actualEnd) return s;
+      const startMs = new Date(s.actualStart).getTime();
+      if (now - startMs <= MAX_FOCUS_SESSION_MS) return s;
+      const endAt = new Date(startMs + MAX_FOCUS_SESSION_MS).toISOString();
+      return { ...s, actualEnd: endAt };
+    });
+    if (updated.some((s, i) => s !== sessions[i])) dispatch({ type: 'setEventFocusSessions', sessions: updated });
+  }, [sessions, dispatch]);
 
   const startSession = useCallback(
     (event: CalendarEvent): string => {
@@ -1095,7 +1139,13 @@ export function useEventFocusSessions(state: AppState, dispatch: (u: StoreUpdate
   );
 
   const getActiveSessionForEvent = useCallback(
-    (eventId: string): EventFocusSession | undefined => sessions.find((s) => s.eventId === eventId && !s.actualEnd),
+    (eventId: string): EventFocusSession | undefined => {
+      const now = Date.now();
+      return sessions.find((s) => {
+        if (s.eventId !== eventId || s.actualEnd) return false;
+        return now - new Date(s.actualStart).getTime() < MAX_FOCUS_SESSION_MS;
+      });
+    },
     [sessions]
   );
 

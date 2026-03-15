@@ -1,8 +1,9 @@
 import type { AppState, CapacitySettings, Goal, Task, ScheduledBlock, Checklist, ChecklistItem, TrackedGoal, GoalLog, JournalEntry, CalendarEvent, CalendarPeriodKey, CalendarPeriodChecklistItem, MyListItem, DailyRecurringItem, DailyItemLog, EventFocusSession, WeeklyRecurringItem, WeeklyItemLog, MonthlyRecurringItem, MonthlyItemLog, Objective } from './types';
 import { DEFAULT_CAPACITY } from './types';
 
-const STORAGE_KEY = 'life-planner-state';
+export const STORAGE_KEY = 'life-planner-state';
 const OLD_STORAGE_KEY = 'adhd-planner-state';
+const TIMESTAMP_KEY = 'life-planner-saved-at';
 
 /** Merge parsed (e.g. from API or localStorage) into full AppState. */
 export function mergeParsedState(parsed: Partial<AppState> | null): AppState {
@@ -60,6 +61,12 @@ function load(): AppState {
 
 function save(state: AppState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(TIMESTAMP_KEY, Date.now().toString());
+}
+
+function getLocalSavedAt(): number {
+  const raw = localStorage.getItem(TIMESTAMP_KEY);
+  return raw ? parseInt(raw, 10) : 0;
 }
 
 export function getInitialState(): AppState {
@@ -95,6 +102,7 @@ export function getInitialState(): AppState {
 export const store = {
   load,
   save,
+  getLocalSavedAt,
 };
 
 export type StoreUpdate =
