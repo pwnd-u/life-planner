@@ -2,32 +2,42 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AppState, Goal, Task, ScheduledBlock, CapacitySettings, Checklist, ChecklistItem, TrackedGoal, GoalLog, JournalEntry, CalendarEvent, CalendarPeriodKey, CalendarPeriodChecklistItem, MyListItem, DailyRecurringItem, DailyItemLog, EventCompletion, EventCompletionStatus, DailyReflection, WeeklyReflection, EventFocusSession, WeeklyRecurringItem, WeeklyItemLog, MonthlyRecurringItem, MonthlyItemLog, Objective } from './types';
 import { applyUpdate, mergeParsedState, STORAGE_KEY, type StoreUpdate } from './store';
 import { todayStr, yesterdayStr } from './lib/date';
-import { loadFromSupabase, saveToSupabase, loadLocal, saveLocal, getLocalSavedAt } from './lib/persistence';
+import { loadFromSupabase, saveToSupabase, loadLocal, saveLocal } from './lib/persistence';
 import { useAuth } from './contexts/AuthContext';
+
+function getVersion(s: AppState): number {
+  return s._version ?? 0;
+}
 
 export function useStore(): [AppState, (update: StoreUpdate) => void] {
   const { user } = useAuth();
   const signedIn = Boolean(user);
   const cloudLoadedRef = useRef(false);
   const fromOtherTabRef = useRef(false);
+  const stateVersionRef = useRef(0);
   const [state, setState] = useState<AppState>(() => loadLocal());
 
-  // Cross-tab sync: when another tab writes to localStorage, pick up
-  // the change instantly so two windows never diverge.
+  stateVersionRef.current = getVersion(state);
+
+  // Cross-tab sync: only accept storage updates that are newer (higher version)
+  // so a tab that refreshed and wrote stale data never overwrites our edits.
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key !== STORAGE_KEY || !e.newValue) return;
       try {
+        const incoming = mergeParsedState(JSON.parse(e.newValue));
+        const incomingVer = getVersion(incoming);
+        if (incomingVer <= stateVersionRef.current) return;
         fromOtherTabRef.current = true;
-        setState(mergeParsedState(JSON.parse(e.newValue)));
+        setState(incoming);
       } catch { /* corrupted JSON — ignore */ }
     };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // When user signs in, load state from Supabase once — but only use cloud
-  // if it's at least as recent as the local copy to avoid overwriting unsaved changes.
+  // When user signs in, load from Supabase once. Use cloud only if its version
+  // is >= local; otherwise keep local and push to avoid losing edits.
   useEffect(() => {
     if (!signedIn) {
       cloudLoadedRef.current = false;
@@ -37,11 +47,13 @@ export function useStore(): [AppState, (update: StoreUpdate) => void] {
     cloudLoadedRef.current = true;
     loadFromSupabase().then((result) => {
       if (!result) return;
-      const localTs = getLocalSavedAt();
-      if (result.cloudSavedAt >= localTs) {
+      const local = loadLocal();
+      const cloudVer = getVersion(result.state);
+      const localVer = getVersion(local);
+      if (cloudVer >= localVer) {
         setState(result.state);
       } else {
-        saveToSupabase(loadLocal());
+        saveToSupabase(local);
       }
     });
   }, [signedIn]);

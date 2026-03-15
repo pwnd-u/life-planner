@@ -167,7 +167,7 @@ export interface AIParsedItem {
 }
 
 /** Item in "My list" before prioritization / adding to calendar. User sets category, importance, time, energy. */
-export type ListItemCategory = 'personal' | 'work';
+export type ListItemCategory = 'personal' | 'work' | 'other';
 
 export interface MyListItem {
   id: string;
@@ -196,6 +196,8 @@ export interface EventCompletion {
   note?: string;
   /** What you actually did in that time block (e.g. when skipped: "Scrolled Twitter"). */
   whatIdidInstead?: string;
+  /** Optional: was I on my phone during this block? */
+  onPhone?: boolean;
 }
 
 /** A focused work session for a calendar event, used to track actual time spent. */
@@ -338,6 +340,8 @@ export interface AppState {
   googleCalendarEvents: CalendarEvent[];
   /** Google OAuth client ID (from Cloud Console) for Calendar sync. */
   googleClientId?: string;
+  /** Incremented on every user edit; used to avoid overwriting newer data with stale (cross-tab / refresh). */
+  _version?: number;
 }
 
 export const DEFAULT_CAPACITY: CapacitySettings = {

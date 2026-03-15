@@ -37,6 +37,7 @@ export function mergeParsedState(parsed: Partial<AppState> | null): AppState {
     openAiApiKey: parsed.openAiApiKey,
     googleCalendarEvents: parsed.googleCalendarEvents ?? [],
     googleClientId: parsed.googleClientId,
+    _version: parsed._version ?? 0,
   };
 }
 
@@ -96,6 +97,7 @@ export function getInitialState(): AppState {
     dailyReflections: {},
     weeklyReflections: {},
     googleCalendarEvents: [],
+    _version: 0,
   };
 }
 
@@ -136,64 +138,68 @@ export type StoreUpdate =
   | { type: 'setGoogleClientId'; googleClientId: string | undefined }
   | { type: 'replace'; state: AppState };
 
+function bumpVersion(state: AppState, next: Partial<AppState>): AppState {
+  return { ...state, ...next, _version: (state._version ?? 0) + 1 };
+}
+
 export function applyUpdate(state: AppState, update: StoreUpdate): AppState {
   switch (update.type) {
     case 'setObjectives':
-      return { ...state, objectives: update.objectives };
+      return bumpVersion(state, { objectives: update.objectives });
     case 'setGoals':
-      return { ...state, goals: update.goals };
+      return bumpVersion(state, { goals: update.goals });
     case 'setTasks':
-      return { ...state, tasks: update.tasks };
+      return bumpVersion(state, { tasks: update.tasks });
     case 'setScheduledBlocks':
-      return { ...state, scheduledBlocks: update.blocks };
+      return bumpVersion(state, { scheduledBlocks: update.blocks });
     case 'setCapacity':
-      return { ...state, capacity: update.capacity };
+      return bumpVersion(state, { capacity: update.capacity });
     case 'setLastScheduledWeekStart':
-      return { ...state, lastScheduledWeekStart: update.weekStart };
+      return bumpVersion(state, { lastScheduledWeekStart: update.weekStart });
     case 'setChecklists':
-      return { ...state, checklists: update.checklists };
+      return bumpVersion(state, { checklists: update.checklists });
     case 'setChecklistItems':
-      return { ...state, checklistItems: update.checklistItems };
+      return bumpVersion(state, { checklistItems: update.checklistItems });
     case 'setTrackedGoals':
-      return { ...state, trackedGoals: update.trackedGoals };
+      return bumpVersion(state, { trackedGoals: update.trackedGoals });
     case 'setGoalLogs':
-      return { ...state, goalLogs: update.goalLogs };
+      return bumpVersion(state, { goalLogs: update.goalLogs });
     case 'setJournalEntries':
-      return { ...state, journalEntries: update.journalEntries };
+      return bumpVersion(state, { journalEntries: update.journalEntries });
     case 'setCalendarEvents':
-      return { ...state, calendarEvents: update.calendarEvents };
+      return bumpVersion(state, { calendarEvents: update.calendarEvents });
     case 'setCalendarPeriodNotes':
-      return { ...state, calendarPeriodNotes: update.calendarPeriodNotes };
+      return bumpVersion(state, { calendarPeriodNotes: update.calendarPeriodNotes });
     case 'setCalendarPeriodChecklists':
-      return { ...state, calendarPeriodChecklists: update.calendarPeriodChecklists };
+      return bumpVersion(state, { calendarPeriodChecklists: update.calendarPeriodChecklists });
     case 'setMyListItems':
-      return { ...state, myListItems: update.myListItems };
+      return bumpVersion(state, { myListItems: update.myListItems });
     case 'setDailyRecurringItems':
-      return { ...state, dailyRecurringItems: update.items };
+      return bumpVersion(state, { dailyRecurringItems: update.items });
     case 'setDailyItemLogs':
-      return { ...state, dailyItemLogs: update.logs };
+      return bumpVersion(state, { dailyItemLogs: update.logs });
     case 'setWeeklyRecurringItems':
-      return { ...state, weeklyRecurringItems: update.items };
+      return bumpVersion(state, { weeklyRecurringItems: update.items });
     case 'setWeeklyItemLogs':
-      return { ...state, weeklyItemLogs: update.logs };
+      return bumpVersion(state, { weeklyItemLogs: update.logs });
     case 'setMonthlyRecurringItems':
-      return { ...state, monthlyRecurringItems: update.items };
+      return bumpVersion(state, { monthlyRecurringItems: update.items });
     case 'setMonthlyItemLogs':
-      return { ...state, monthlyItemLogs: update.logs };
+      return bumpVersion(state, { monthlyItemLogs: update.logs });
     case 'setEventCompletions':
-      return { ...state, eventCompletions: update.eventCompletions };
+      return bumpVersion(state, { eventCompletions: update.eventCompletions });
     case 'setEventFocusSessions':
-      return { ...state, eventFocusSessions: update.sessions };
+      return bumpVersion(state, { eventFocusSessions: update.sessions });
     case 'setDailyReflections':
-      return { ...state, dailyReflections: update.dailyReflections };
+      return bumpVersion(state, { dailyReflections: update.dailyReflections });
     case 'setWeeklyReflections':
-      return { ...state, weeklyReflections: update.weeklyReflections };
+      return bumpVersion(state, { weeklyReflections: update.weeklyReflections });
     case 'setOpenAiApiKey':
-      return { ...state, openAiApiKey: update.key };
+      return bumpVersion(state, { openAiApiKey: update.key });
     case 'setGoogleCalendarEvents':
-      return { ...state, googleCalendarEvents: update.googleCalendarEvents };
+      return bumpVersion(state, { googleCalendarEvents: update.googleCalendarEvents });
     case 'setGoogleClientId':
-      return { ...state, googleClientId: update.googleClientId };
+      return bumpVersion(state, { googleClientId: update.googleClientId });
     case 'replace':
       return update.state;
     default:
